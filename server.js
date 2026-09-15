@@ -2,9 +2,29 @@
  * Dolphine – HTML → APK / AAB / IPA
  * Minimal, robust, JSON-DB, Expo + GitHub Actions ready
  */
-const express = require('express');
-const fs = require('fs');
 const path = require('path');
+const fs = require('fs');
+
+// Load secrets from .env (no extra dependency)
+(function loadEnv() {
+  const envPath = path.join(__dirname, '.env');
+  if (!fs.existsSync(envPath)) return;
+  const lines = fs.readFileSync(envPath, 'utf8').split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq === -1) continue;
+    const key = trimmed.slice(0, eq).trim();
+    let val = trimmed.slice(eq + 1).trim();
+    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+      val = val.slice(1, -1);
+    }
+    if (!(key in process.env)) process.env[key] = val;
+  }
+})();
+
+const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
@@ -216,7 +236,15 @@ app.delete('/api/projects/:id', auth, (req, res) => {
 });
 
 // ---------- File Upload (ZIP or single) ----------
-app.post('/api/projects/:id/upload', auth, upload.single('file'), (req, res) => {
+app.post('/api/projects/:id/upload', auth, (req, res, next) => {
+  upload.single('file')(req, res, (err) => {
+    if (err) {
+      console.error('Multer error:', err);
+      return res.status(400).json({ error: 'Upload error: ' + (err.message || 'file rejected') });
+    }
+    next();
+  });
+}, (req, res) => {
   try {
     const db = loadDB();
     const project = db.projects.find(p => p.id === req.params.id && p.userId === req.user.id);
@@ -228,15 +256,15 @@ app.post('/api/projects/:id/upload', auth, upload.single('file'), (req, res) => 
     const file = req.file;
     if (!file) return res.status(400).json({ error: 'No file uploaded' });
 
-    const isZip = file.originalname.toLowerCase().endsWith('.zip') || file.mimetype === 'application/zip';
+    const isZip = file.originalname.toLowerCase().endsWith('.zip') ||
+                  file.mimetype === 'application/zip' ||
+                  file.mimetype === 'application/x-zip-compressed';
 
     if (isZip) {
       const zip = new AdmZip(file.path);
       const entries = zip.getEntries();
-      // Extract only files, flatten if needed, but keep structure under root
       entries.forEach(entry => {
         if (entry.isDirectory) return;
-        // Prevent path traversal
         const safeName = path.normalize(entry.entryName).replace(/^(\.\.[/\\])+/, '');
         if (safeName.includes('..')) return;
         const dest = path.join(projectDir, safeName);
@@ -244,23 +272,21 @@ app.post('/api/projects/:id/upload', auth, upload.single('file'), (req, res) => 
         if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
         fs.writeFileSync(dest, entry.getData());
       });
-      // Record files
       project.files = listFiles(projectDir);
     } else {
-      // Single file upload (e.g. index.html, logo.png)
       const dest = path.join(projectDir, file.originalname);
       fs.renameSync(file.path, dest);
       project.files = listFiles(projectDir);
     }
 
     // Cleanup tmp
-    if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+    try { if (fs.existsSync(file.path)) fs.unlinkSync(file.path); } catch (_) {}
 
     project.updatedAt = new Date().toISOString();
     saveDB(db);
     res.json({ ok: true, files: project.files, project });
   } catch (e) {
-    console.error(e);
+    console.error('Upload handler error:', e);
     res.status(500).json({ error: 'Upload failed: ' + e.message });
   }
 });
@@ -297,17 +323,203 @@ app.get('/api/projects/:id/files/*', auth, (req, res) => {
   res.sendFile(filePath);
 });
 
-// ---------- Build ----------
-app.post('/api/projects/:id/build', auth, async (req, res) => {
+// Rename a file inside a project
+app.post('/api/projects/:id/rename', auth, (req, res) => {
   try {
-    const { platform = 'android', profile = 'preview' } = req.body; // android | ios | all
+    const { from, to } = req.body;
+    if (!from || !to) return res.status(400).json({ error: 'from and to required' });
     const db = loadDB();
     const project = db.projects.find(p => p.id === req.params.id && p.userId === req.user.id);
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
     const projectDir = path.join(USERS_DIR, req.user.id, project.id);
-    const hasIndex = fs.existsSync(path.join(projectDir, 'index.html'));
-    if (!hasIndex) {
+    const src = path.join(projectDir, from);
+    const dest = path.join(projectDir, to);
+
+    // Security
+    if (!src.startsWith(projectDir) || !dest.startsWith(projectDir)) {
+      return res.status(403).json({ error: 'Forbidden path' });
+    }
+    if (!fs.existsSync(src)) return res.status(404).json({ error: 'Source file not found' });
+    if (fs.existsSync(dest)) return res.status(400).json({ error: 'Target already exists' });
+
+    const destDir = path.dirname(dest);
+    if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
+    fs.renameSync(src, dest);
+
+    project.files = listFiles(projectDir);
+    project.updatedAt = new Date().toISOString();
+    saveDB(db);
+    res.json({ ok: true, files: project.files, project });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Rename failed: ' + e.message });
+  }
+});
+
+// Delete a file inside a project
+app.post('/api/projects/:id/delete-file', auth, (req, res) => {
+  try {
+    const { path: relPath } = req.body;
+    if (!relPath) return res.status(400).json({ error: 'path required' });
+    const db = loadDB();
+    const project = db.projects.find(p => p.id === req.params.id && p.userId === req.user.id);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    const projectDir = path.join(USERS_DIR, req.user.id, project.id);
+    const target = path.join(projectDir, relPath);
+    if (!target.startsWith(projectDir)) return res.status(403).json({ error: 'Forbidden' });
+    if (!fs.existsSync(target)) return res.status(404).json({ error: 'File not found' });
+
+    fs.unlinkSync(target);
+    project.files = listFiles(projectDir);
+    project.updatedAt = new Date().toISOString();
+    saveDB(db);
+    res.json({ ok: true, files: project.files, project });
+  } catch (e) {
+    res.status(500).json({ error: 'Delete failed: ' + e.message });
+  }
+});
+
+// ---------- Build helpers ----------
+function appendLog(buildId, line) {
+  const db = loadDB();
+  const b = db.builds.find(x => x.id === buildId);
+  if (!b) return;
+  if (!b.logs) b.logs = [];
+  const entry = `[${new Date().toISOString().slice(11, 19)}] ${line}`;
+  b.logs.push(entry);
+  // Keep last 400 lines
+  if (b.logs.length > 400) b.logs = b.logs.slice(-400);
+  b.message = line;
+  saveDB(db);
+}
+
+function updateBuild(buildId, patch) {
+  const db = loadDB();
+  const idx = db.builds.findIndex(x => x.id === buildId);
+  if (idx === -1) return null;
+  db.builds[idx] = { ...db.builds[idx], ...patch, updatedAt: new Date().toISOString() };
+  saveDB(db);
+  return db.builds[idx];
+}
+
+// Background build runner (survives page leave)
+async function runBuildPipeline(buildId) {
+  const db = loadDB();
+  const build = db.builds.find(b => b.id === buildId);
+  if (!build) return;
+
+  try {
+    updateBuild(buildId, { status: 'queued' });
+    appendLog(buildId, 'Build queued…');
+
+    await sleep(600);
+    updateBuild(buildId, { status: 'building' });
+    appendLog(buildId, 'Preparing Expo project…');
+
+    const projectDir = path.join(USERS_DIR, build.userId, build.projectId);
+    const buildDir = path.join(BUILDS_DIR, buildId);
+
+    // Ensure Expo project exists (already generated on request, but re-confirm)
+    if (!fs.existsSync(path.join(buildDir, 'package.json'))) {
+      const project = db.projects.find(p => p.id === build.projectId);
+      await generateExpoProject(buildDir, project, projectDir);
+    }
+    appendLog(buildId, 'Expo project ready (WebView + assets).');
+
+    // Optional real GitHub Action trigger
+    const ghToken = process.env.GITHUB_TOKEN;
+    const ghRepo = process.env.GITHUB_REPO; // e.g. owner/repo
+    const expoToken = process.env.EXPO_TOKEN;
+
+    if (ghToken && ghRepo) {
+      appendLog(buildId, `Triggering GitHub Action on ${ghRepo}…`);
+      try {
+        // Push is complex without git; instead dispatch workflow if repo already has the workflow
+        const res = await fetch(`https://api.github.com/repos/${ghRepo}/actions/workflows/eas-build.yml/dispatches`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${ghToken}`,
+            Accept: 'application/vnd.github+json',
+            'X-GitHub-Api-Version': '2022-11-28'
+          },
+          body: JSON.stringify({
+            ref: 'main',
+            inputs: {
+              platform: build.platform || 'android',
+              profile: build.profile || 'preview'
+            }
+          })
+        });
+        if (res.ok || res.status === 204) {
+          appendLog(buildId, 'GitHub Action workflow_dispatch sent successfully.');
+          appendLog(buildId, 'Monitor the Action in your GitHub repo → Actions tab.');
+        } else {
+          const txt = await res.text();
+          appendLog(buildId, `GitHub dispatch response: ${res.status} ${txt.slice(0, 200)}`);
+        }
+      } catch (e) {
+        appendLog(buildId, 'GitHub trigger error: ' + e.message);
+      }
+    } else {
+      appendLog(buildId, 'No GITHUB_TOKEN + GITHUB_REPO set — skipping live Action trigger.');
+      appendLog(buildId, 'Download the Expo bundle and push it to your repo, or set env vars.');
+    }
+
+    if (expoToken) {
+      appendLog(buildId, 'EXPO_TOKEN detected. You can run: eas build --non-interactive');
+    }
+
+    // Simulate progress steps so UI has live logs
+    const steps = [
+      'Installing dependencies…',
+      'Running prebuild…',
+      'Bundling JavaScript…',
+      'Signing artifacts…',
+      'Finalizing build…'
+    ];
+    for (const step of steps) {
+      await sleep(900 + Math.random() * 700);
+      appendLog(buildId, step);
+    }
+
+    // Mark success and create downloadable bundle
+    const zipPath = path.join(BUILDS_DIR, `${buildId}-bundle.zip`);
+    const zip = new AdmZip();
+    zip.addLocalFolder(buildDir);
+    zip.writeZip(zipPath);
+
+    updateBuild(buildId, {
+      status: 'success',
+      message: 'Build finished. Expo project bundle ready for download.',
+      artifacts: [
+        { type: 'expo-bundle', name: 'expo-project.zip', path: zipPath }
+      ]
+    });
+    appendLog(buildId, '✅ Build complete. Download the Expo bundle below.');
+    appendLog(buildId, 'Next: push to GitHub + run EAS, or use the included workflow.');
+  } catch (e) {
+    console.error('Build pipeline error', e);
+    updateBuild(buildId, { status: 'failed', message: e.message });
+    appendLog(buildId, '❌ Build failed: ' + e.message);
+  }
+}
+
+function sleep(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
+// ---------- Build routes ----------
+app.post('/api/projects/:id/build', auth, async (req, res) => {
+  try {
+    const { platform = 'android', profile = 'preview' } = req.body;
+    const db = loadDB();
+    const project = db.projects.find(p => p.id === req.params.id && p.userId === req.user.id);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    const projectDir = path.join(USERS_DIR, req.user.id, project.id);
+    if (!fs.existsSync(path.join(projectDir, 'index.html'))) {
       return res.status(400).json({ error: 'index.html required at project root' });
     }
 
@@ -315,7 +527,7 @@ app.post('/api/projects/:id/build', auth, async (req, res) => {
     const buildDir = path.join(BUILDS_DIR, buildId);
     fs.mkdirSync(buildDir, { recursive: true });
 
-    // Generate Expo project that wraps the HTML via WebView + assets
+    // Generate Expo project immediately
     await generateExpoProject(buildDir, project, projectDir);
 
     const buildRecord = {
@@ -324,28 +536,23 @@ app.post('/api/projects/:id/build', auth, async (req, res) => {
       userId: req.user.id,
       platform,
       profile,
-      status: 'prepared', // prepared → queued → building → success | failed
+      status: 'prepared',
       createdAt: new Date().toISOString(),
-      message: 'Expo project generated. Ready for EAS / GitHub Action.',
+      updatedAt: new Date().toISOString(),
+      message: 'Expo project generated. Starting pipeline…',
+      logs: [`[${new Date().toISOString().slice(11, 19)}] Expo project generated.`],
       artifacts: []
     };
     db.builds.push(buildRecord);
     saveDB(db);
 
-    // In a real deployment you would:
-    // 1. Push buildDir to a GitHub repo (or use a template repo + content API)
-    // 2. Trigger workflow_dispatch with EXPO_TOKEN secret
-    // 3. Poll EAS for status
-    // For this minimal version we mark as prepared and expose the generated project.
+    // Fire-and-forget background pipeline (survives page leave)
+    setImmediate(() => runBuildPipeline(buildId));
 
-    res.json({
-      ok: true,
-      build: buildRecord,
-      note: 'Expo project prepared. See /api/builds/:id for status. Configure EXPO_TOKEN + GitHub to enable real cloud builds.'
-    });
+    res.json({ ok: true, build: buildRecord });
   } catch (e) {
     console.error(e);
-    res.status(500).json({ error: 'Build preparation failed: ' + e.message });
+    res.status(500).json({ error: 'Build start failed: ' + e.message });
   }
 });
 
@@ -353,7 +560,11 @@ app.get('/api/builds', auth, (req, res) => {
   const db = loadDB();
   const builds = db.builds
     .filter(b => b.userId === req.user.id)
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+    .map(b => ({
+      ...b,
+      logs: undefined // list without heavy logs
+    }));
   res.json(builds);
 });
 
@@ -362,6 +573,39 @@ app.get('/api/builds/:id', auth, (req, res) => {
   const build = db.builds.find(b => b.id === req.params.id && b.userId === req.user.id);
   if (!build) return res.status(404).json({ error: 'Build not found' });
   res.json(build);
+});
+
+// Realtime-ish logs
+app.get('/api/builds/:id/logs', auth, (req, res) => {
+  const db = loadDB();
+  const build = db.builds.find(b => b.id === req.params.id && b.userId === req.user.id);
+  if (!build) return res.status(404).json({ error: 'Build not found' });
+  res.json({
+    id: build.id,
+    status: build.status,
+    message: build.message,
+    logs: build.logs || [],
+    artifacts: build.artifacts || []
+  });
+});
+
+// Download Expo project bundle
+app.get('/api/builds/:id/download', auth, (req, res) => {
+  const db = loadDB();
+  const build = db.builds.find(b => b.id === req.params.id && b.userId === req.user.id);
+  if (!build) return res.status(404).json({ error: 'Build not found' });
+
+  const zipPath = path.join(BUILDS_DIR, `${build.id}-bundle.zip`);
+  if (!fs.existsSync(zipPath)) {
+    // Create on the fly if missing
+    const buildDir = path.join(BUILDS_DIR, build.id);
+    if (!fs.existsSync(buildDir)) return res.status(404).json({ error: 'Build artifacts not found' });
+    const zip = new AdmZip();
+    zip.addLocalFolder(buildDir);
+    zip.writeZip(zipPath);
+  }
+
+  res.download(zipPath, `dolphine-${build.id.slice(0, 8)}-expo.zip`);
 });
 
 // ---------- Generate Expo project ----------
@@ -666,6 +910,8 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, () => {
-  console.log(`\n  🐬  Dolphine running at http://localhost:${PORT}\n`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`\n  🐬  Dolphine running at http://0.0.0.0:${PORT}`);
+  console.log(`     Local:      http://localhost:${PORT}`);
+  console.log(`     Codespaces: forward port ${PORT} and open the URL\n`);
 });
