@@ -750,6 +750,13 @@
     <div class="modal">
       <h2>Start build</h2>
       <div class="field">
+        <label>Build mode</label>
+        <select id="build-mode">
+          <option value="cloud">Cloud — EAS / GitHub Action</option>
+          <option value="local">Local — Android build on this machine</option>
+        </select>
+      </div>
+      <div class="field">
         <label>Platform</label>
         <select id="build-platform">
           <option value="android">Android (APK / AAB)</option>
@@ -765,8 +772,9 @@
           <option value="development">Development client</option>
         </select>
       </div>
-      <p style="font-size:0.85rem;color:var(--muted);margin-top:8px">
-        Generates a full Expo project with WebView + GitHub Action YAML. Real cloud builds require EXPO_TOKEN.
+      <p style="font-size:0.85rem;color:var(--muted);margin-top:8px" id="build-mode-hint">
+        <strong>Cloud:</strong> uses EXPO_TOKEN and/or GitHub Action for EAS cloud builds.<br/>
+        <strong>Local:</strong> runs Android build on this machine (needs Android SDK / Java). iOS local only on macOS.
       </p>
       <div class="modal-actions">
         <button class="btn btn-ghost" id="modal-build-cancel">Cancel</button>
@@ -1158,20 +1166,24 @@
     });
     $('#modal-build-cancel').addEventListener('click', () => $('#modal-build').classList.add('hidden'));
     $('#modal-build-start').addEventListener('click', async () => {
+      const mode = $('#build-mode').value;
       const platform = $('#build-platform').value;
       const profile = $('#build-profile').value;
+      if (mode === 'local' && platform === 'ios') {
+        toast('Local iOS builds require macOS + Xcode. Use Cloud or pick Android.');
+        return;
+      }
       const btn = $('#modal-build-start');
       btn.disabled = true;
       btn.innerHTML = '<span class="spinner"></span> Starting…';
       try {
         const res = await api(`/projects/${state.currentProject.id}/build`, {
           method: 'POST',
-          body: JSON.stringify({ platform, profile })
+          body: JSON.stringify({ platform, profile, mode })
         });
         $('#modal-build').classList.add('hidden');
-        toast('Build started — runs in background even if you leave.');
+        toast(mode === 'local' ? 'Local Android build started…' : 'Cloud build started…');
         loadProjectBuilds(state.currentProject.id);
-        // Start watching this build
         if (res.build && res.build.id) startLogWatch(res.build.id);
       } catch (e) {
         toast(e.message);
@@ -1190,12 +1202,16 @@
     }
 
     function renderBuildCard(b, withLogs = false) {
-      const canDownload = b.status === 'success' || (b.artifacts && b.artifacts.length);
+      const arts = b.artifacts || [];
+      const binary = arts.find(a => a.type === 'app-binary' && a.url);
+      const expoPage = arts.find(a => a.type === 'expo-page' && a.url);
+      const ghActions = arts.find(a => a.type === 'github-actions' && a.url);
+      const canZip = b.status === 'success' || arts.some(a => a.type === 'expo-bundle');
       return `
         <div class="build-card" data-build="${b.id}">
           <div class="head">
             <div>
-              <div style="font-weight:600;font-size:0.95rem">${escapeHtml(b.platform)} · ${escapeHtml(b.profile)}</div>
+              <div style="font-weight:600;font-size:0.95rem">${escapeHtml(b.mode || 'cloud')} · ${escapeHtml(b.platform)} · ${escapeHtml(b.profile)}</div>
               <div style="font-size:0.75rem;color:var(--muted);margin-top:2px">${new Date(b.createdAt).toLocaleString()}</div>
             </div>
             <span class="status-pill ${statusClass(b.status)}">${escapeHtml(b.status)}</span>
@@ -1206,10 +1222,22 @@
             <button class="btn btn-ghost btn-sm btn-watch" data-id="${b.id}">
               <i data-lucide="terminal"></i> Logs
             </button>
-            ${canDownload ? `
-              <a class="btn btn-primary btn-sm" href="/api/builds/${b.id}/download" 
+            ${binary ? `
+              <a class="btn btn-primary btn-sm" href="${escapeHtml(binary.url)}" target="_blank" rel="noopener">
+                <i data-lucide="download"></i> Download APK/AAB
+              </a>` : ''}
+            ${expoPage ? `
+              <a class="btn btn-ghost btn-sm" href="${escapeHtml(expoPage.url)}" target="_blank" rel="noopener">
+                <i data-lucide="external-link"></i> Expo build
+              </a>` : ''}
+            ${ghActions ? `
+              <a class="btn btn-ghost btn-sm" href="${escapeHtml(ghActions.url)}" target="_blank" rel="noopener">
+                <i data-lucide="github"></i> Actions
+              </a>` : ''}
+            ${canZip ? `
+              <a class="btn btn-ghost btn-sm" href="#"
                  onclick="event.preventDefault(); downloadBuild('${b.id}')">
-                <i data-lucide="download"></i> Download bundle
+                <i data-lucide="package"></i> Expo project ZIP
               </a>` : ''}
           </div>
         </div>
