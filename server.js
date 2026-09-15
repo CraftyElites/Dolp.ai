@@ -404,6 +404,105 @@ function updateBuild(buildId, patch) {
   return db.builds[idx];
 }
 
+const { exec } = require('child_process');
+const { promisify } = require('util');
+const execAsync = promisify(exec);
+
+function sleep(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
+// Run shell command, stream lines into build log
+async function runCmd(buildId, cmd, cwd, env = {}) {
+  appendLog(buildId, `$ ${cmd}`);
+  try {
+    const { stdout, stderr } = await execAsync(cmd, {
+      cwd,
+      env: { ...process.env, ...env },
+      maxBuffer: 10 * 1024 * 1024,
+      timeout: 15 * 60 * 1000
+    });
+    const out = (stdout || '').trim();
+    const err = (stderr || '').trim();
+    if (out) out.split('\n').slice(-30).forEach(l => appendLog(buildId, l));
+    if (err) err.split('\n').slice(-15).forEach(l => appendLog(buildId, l));
+    return { stdout: out, stderr: err };
+  } catch (e) {
+    const out = (e.stdout || '').toString().trim();
+    const err = (e.stderr || '').toString().trim();
+    if (out) out.split('\n').slice(-20).forEach(l => appendLog(buildId, l));
+    if (err) err.split('\n').slice(-20).forEach(l => appendLog(buildId, l));
+    throw e;
+  }
+}
+
+// Poll Expo GraphQL for build status (using EXPO_TOKEN)
+async function pollExpoBuild(buildId, expoBuildId, expoToken, maxMinutes = 25) {
+  const deadline = Date.now() + maxMinutes * 60 * 1000;
+  appendLog(buildId, `Polling Expo build ${expoBuildId}…`);
+
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch('https://api.expo.dev/graphql', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${expoToken}`
+        },
+        body: JSON.stringify({
+          query: `query($id: ID!) {
+            builds(filter: { id: $id }, limit: 1) {
+              id status platform artifacts { buildUrl url }
+              app { name }
+            }
+          }`,
+          variables: { id: expoBuildId }
+        })
+      });
+      const json = await res.json();
+      const b = json?.data?.builds?.[0];
+      if (!b) {
+        // Fallback: REST-style attempt
+        appendLog(buildId, 'Waiting for Expo build…');
+      } else {
+        appendLog(buildId, `Expo status: ${b.status}`);
+        if (b.status === 'FINISHED' || b.status === 'finished') {
+          const url = b.artifacts?.buildUrl || b.artifacts?.url || null;
+          return { status: 'success', url, raw: b };
+        }
+        if (b.status === 'ERRORED' || b.status === 'errored' || b.status === 'CANCELED') {
+          return { status: 'failed', url: null, raw: b };
+        }
+      }
+    } catch (e) {
+      appendLog(buildId, 'Poll error: ' + e.message);
+    }
+    await sleep(20000);
+  }
+  return { status: 'timeout', url: null };
+}
+
+// Find APK/AAB produced by a local build
+function findLocalBinaries(dir) {
+  const found = [];
+  function walk(d) {
+    if (!fs.existsSync(d)) return;
+    for (const name of fs.readdirSync(d)) {
+      const full = path.join(d, name);
+      let st;
+      try { st = fs.statSync(full); } catch { continue; }
+      if (st.isDirectory()) {
+        if (name === 'node_modules' || name === '.git') continue;
+        walk(full);
+      } else if (/\.(apk|aab)$/i.test(name)) {
+        found.push(full);
+      }
+    }
+  }
+  walk(dir);
+  return found;
+}
+
 // Background build runner (survives page leave)
 async function runBuildPipeline(buildId) {
   const db = loadDB();
@@ -413,30 +512,195 @@ async function runBuildPipeline(buildId) {
   try {
     updateBuild(buildId, { status: 'queued' });
     appendLog(buildId, 'Build queued…');
-
-    await sleep(600);
+    await sleep(400);
     updateBuild(buildId, { status: 'building' });
     appendLog(buildId, 'Preparing Expo project…');
 
     const projectDir = path.join(USERS_DIR, build.userId, build.projectId);
     const buildDir = path.join(BUILDS_DIR, buildId);
 
-    // Ensure Expo project exists (already generated on request, but re-confirm)
     if (!fs.existsSync(path.join(buildDir, 'package.json'))) {
       const project = db.projects.find(p => p.id === build.projectId);
       await generateExpoProject(buildDir, project, projectDir);
     }
     appendLog(buildId, 'Expo project ready (WebView + assets).');
 
-    // Optional real GitHub Action trigger
+    const zipPath = path.join(BUILDS_DIR, `${buildId}-bundle.zip`);
+    const zip = new AdmZip();
+    zip.addLocalFolder(buildDir);
+    zip.writeZip(zipPath);
+
     const ghToken = process.env.GITHUB_TOKEN;
-    const ghRepo = process.env.GITHUB_REPO; // e.g. owner/repo
+    const ghRepo = (process.env.GITHUB_REPO || '').replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '').trim();
     const expoToken = process.env.EXPO_TOKEN;
+    const platform = build.platform || 'android';
+    const profile = build.profile || 'preview';
+    const mode = build.mode || 'cloud';
+    const artifacts = [{ type: 'expo-bundle', name: 'expo-project.zip', path: zipPath }];
+
+    appendLog(buildId, `Mode: ${mode} · Platform: ${platform} · Profile: ${profile}`);
+
+    // ===================== LOCAL ANDROID BUILD =====================
+    if (mode === 'local') {
+      if (platform === 'ios') {
+        updateBuild(buildId, { status: 'failed', message: 'Local iOS requires macOS + Xcode', artifacts });
+        appendLog(buildId, '❌ Local iOS builds only work on macOS with Xcode. Use Cloud mode.');
+        return;
+      }
+
+      appendLog(buildId, 'Local mode: Android build on this machine…');
+      appendLog(buildId, 'Requires: Node, Java, Android SDK (ANDROID_HOME).');
+
+      try {
+        appendLog(buildId, 'Installing npm dependencies…');
+        await runCmd(buildId, 'npm install --no-audit --no-fund', buildDir);
+
+        // Prefer EAS local if token available; otherwise try expo run:android / gradle after prebuild
+        if (expoToken) {
+          appendLog(buildId, 'EXPO_TOKEN found — using EAS local build…');
+          const easLocal = `npx --yes eas-cli@latest build --platform android --profile ${profile} --local --non-interactive`;
+          await runCmd(buildId, easLocal, buildDir, {
+            EXPO_TOKEN: expoToken,
+            EAS_NO_VCS: '1'
+          });
+        } else {
+          appendLog(buildId, 'No EXPO_TOKEN — using expo prebuild + Gradle…');
+          await runCmd(buildId, 'npx --yes expo prebuild --platform android --no-install', buildDir, {
+            EAS_NO_VCS: '1',
+            CI: '1'
+          });
+
+          const androidDir = path.join(buildDir, 'android');
+          if (!fs.existsSync(androidDir)) {
+            throw new Error('android/ folder missing after prebuild');
+          }
+
+          // Make gradlew executable
+          const gradlew = path.join(androidDir, 'gradlew');
+          if (fs.existsSync(gradlew)) {
+            try { fs.chmodSync(gradlew, 0o755); } catch (_) {}
+          }
+
+          const gradleCmd = profile === 'production'
+            ? './gradlew app:bundleRelease'
+            : './gradlew app:assembleRelease';
+          appendLog(buildId, `Running ${gradleCmd}…`);
+          await runCmd(buildId, gradleCmd, androidDir);
+        }
+
+        const binaries = findLocalBinaries(buildDir);
+        if (binaries.length) {
+          for (const bin of binaries) {
+            const base = path.basename(bin);
+            const dest = path.join(BUILDS_DIR, `${buildId}-${base}`);
+            fs.copyFileSync(bin, dest);
+            artifacts.push({ type: 'app-binary', name: base, path: dest });
+            appendLog(buildId, `Found binary: ${base}`);
+          }
+          updateBuild(buildId, {
+            status: 'success',
+            message: 'Local Android build finished — download APK/AAB below.',
+            artifacts
+          });
+          appendLog(buildId, '✅ Local build complete.');
+          return;
+        }
+
+        appendLog(buildId, 'No APK/AAB found after local build. Check Android SDK / logs.');
+        updateBuild(buildId, {
+          status: 'failed',
+          message: 'Local build ran but no APK/AAB was produced.',
+          artifacts
+        });
+        return;
+      } catch (e) {
+        appendLog(buildId, 'Local build error: ' + (e.message || String(e)).slice(0, 400));
+        appendLog(buildId, 'Tip: install Android Studio / set ANDROID_HOME, or use Cloud mode.');
+        updateBuild(buildId, {
+          status: 'failed',
+          message: 'Local build failed: ' + (e.message || '').slice(0, 120),
+          artifacts
+        });
+        return;
+      }
+    }
+
+    // ===================== CLOUD (EAS + optional GitHub Action) =====================
+    appendLog(buildId, 'Cloud mode: EAS / GitHub Action…');
+
+    if (expoToken) {
+      appendLog(buildId, 'EXPO_TOKEN found — starting EAS cloud build…');
+      try {
+        appendLog(buildId, 'Installing dependencies…');
+        await runCmd(buildId, 'npm install --no-audit --no-fund', buildDir);
+
+        appendLog(buildId, `Running: eas build -p ${platform} --profile ${profile}`);
+        const easCmd = `npx --yes eas-cli@latest build --platform ${platform === 'all' ? 'all' : platform} --profile ${profile} --non-interactive --no-wait --json`;
+        const { stdout } = await runCmd(buildId, easCmd, buildDir, {
+          EXPO_TOKEN: expoToken,
+          EAS_NO_VCS: '1'
+        });
+
+        let expoBuildId = null;
+        let buildPageUrl = null;
+        try {
+          const parsed = JSON.parse(stdout);
+          const first = Array.isArray(parsed) ? parsed[0] : parsed;
+          expoBuildId = first?.id || first?.buildId || null;
+          buildPageUrl = first?.buildDetailsPageUrl || first?.url || null;
+        } catch (_) {
+          const m = stdout.match(/builds\/([a-f0-9-]{20,})/i);
+          if (m) expoBuildId = m[1];
+          const u = stdout.match(/https:\/\/expo\.dev\/[^\s]+/i);
+          if (u) buildPageUrl = u[0];
+        }
+
+        if (buildPageUrl) {
+          appendLog(buildId, `Build page: ${buildPageUrl}`);
+          artifacts.push({ type: 'expo-page', name: 'Expo build page', url: buildPageUrl });
+        }
+
+        if (expoBuildId) {
+          appendLog(buildId, `EAS build queued: ${expoBuildId}`);
+          appendLog(buildId, 'Waiting for cloud build (often 5–20 min)…');
+          const result = await pollExpoBuild(buildId, expoBuildId, expoToken);
+          if (result.status === 'success' && result.url) {
+            artifacts.push({ type: 'app-binary', name: 'App binary (APK/AAB/IPA)', url: result.url });
+            updateBuild(buildId, {
+              status: 'success',
+              message: 'EAS cloud build finished — download your APK/AAB below.',
+              artifacts,
+              expoBuildId,
+              binaryUrl: result.url
+            });
+            appendLog(buildId, '✅ Final app binary ready.');
+            appendLog(buildId, result.url);
+            return;
+          }
+          if (result.status === 'success') {
+            updateBuild(buildId, {
+              status: 'success',
+              message: 'EAS build finished. Open Expo dashboard for the download.',
+              artifacts,
+              expoBuildId
+            });
+            appendLog(buildId, '✅ EAS build finished. Check Expo dashboard for APK/AAB.');
+            return;
+          }
+          appendLog(buildId, 'Cloud build timed out or failed — see logs / Expo dashboard.');
+        } else {
+          appendLog(buildId, 'Could not parse EAS build id. Check https://expo.dev');
+        }
+      } catch (e) {
+        appendLog(buildId, 'EAS cloud error: ' + (e.message || String(e)).slice(0, 300));
+      }
+    } else {
+      appendLog(buildId, 'No EXPO_TOKEN in .env — trying GitHub Action only…');
+    }
 
     if (ghToken && ghRepo) {
       appendLog(buildId, `Triggering GitHub Action on ${ghRepo}…`);
       try {
-        // Push is complex without git; instead dispatch workflow if repo already has the workflow
         const res = await fetch(`https://api.github.com/repos/${ghRepo}/actions/workflows/eas-build.yml/dispatches`, {
           method: 'POST',
           headers: {
@@ -447,58 +711,40 @@ async function runBuildPipeline(buildId) {
           body: JSON.stringify({
             ref: 'main',
             inputs: {
-              platform: build.platform || 'android',
-              profile: build.profile || 'preview'
+              platform: platform === 'all' ? 'all' : platform,
+              profile
             }
           })
         });
         if (res.ok || res.status === 204) {
-          appendLog(buildId, 'GitHub Action workflow_dispatch sent successfully.');
-          appendLog(buildId, 'Monitor the Action in your GitHub repo → Actions tab.');
+          appendLog(buildId, 'GitHub Action dispatched (uses repo secret EXPO_TOKEN).');
+          appendLog(buildId, `Watch: https://github.com/${ghRepo}/actions`);
+          artifacts.push({
+            type: 'github-actions',
+            name: 'GitHub Actions',
+            url: `https://github.com/${ghRepo}/actions`
+          });
         } else {
           const txt = await res.text();
-          appendLog(buildId, `GitHub dispatch response: ${res.status} ${txt.slice(0, 200)}`);
+          appendLog(buildId, `GitHub dispatch: ${res.status} ${txt.slice(0, 250)}`);
+          appendLog(buildId, 'Ensure .github/workflows/eas-build.yml exists on main.');
         }
       } catch (e) {
         appendLog(buildId, 'GitHub trigger error: ' + e.message);
       }
-    } else {
-      appendLog(buildId, 'No GITHUB_TOKEN + GITHUB_REPO set — skipping live Action trigger.');
-      appendLog(buildId, 'Download the Expo bundle and push it to your repo, or set env vars.');
+    } else if (!expoToken) {
+      appendLog(buildId, 'No EXPO_TOKEN and no GITHUB_TOKEN/GITHUB_REPO — cannot start cloud build.');
+      appendLog(buildId, 'Add tokens to .env or use Local mode on a machine with Android SDK.');
     }
-
-    if (expoToken) {
-      appendLog(buildId, 'EXPO_TOKEN detected. You can run: eas build --non-interactive');
-    }
-
-    // Simulate progress steps so UI has live logs
-    const steps = [
-      'Installing dependencies…',
-      'Running prebuild…',
-      'Bundling JavaScript…',
-      'Signing artifacts…',
-      'Finalizing build…'
-    ];
-    for (const step of steps) {
-      await sleep(900 + Math.random() * 700);
-      appendLog(buildId, step);
-    }
-
-    // Mark success and create downloadable bundle
-    const zipPath = path.join(BUILDS_DIR, `${buildId}-bundle.zip`);
-    const zip = new AdmZip();
-    zip.addLocalFolder(buildDir);
-    zip.writeZip(zipPath);
 
     updateBuild(buildId, {
       status: 'success',
-      message: 'Build finished. Expo project bundle ready for download.',
-      artifacts: [
-        { type: 'expo-bundle', name: 'expo-project.zip', path: zipPath }
-      ]
+      message: expoToken || (ghToken && ghRepo)
+        ? 'Cloud pipeline started. Check Expo / GitHub Actions for APK.'
+        : 'Expo project prepared. Configure tokens or use Local mode.',
+      artifacts
     });
-    appendLog(buildId, '✅ Build complete. Download the Expo bundle below.');
-    appendLog(buildId, 'Next: push to GitHub + run EAS, or use the included workflow.');
+    appendLog(buildId, '✅ Cloud pipeline step complete.');
   } catch (e) {
     console.error('Build pipeline error', e);
     updateBuild(buildId, { status: 'failed', message: e.message });
@@ -506,14 +752,11 @@ async function runBuildPipeline(buildId) {
   }
 }
 
-function sleep(ms) {
-  return new Promise(r => setTimeout(r, ms));
-}
-
 // ---------- Build routes ----------
 app.post('/api/projects/:id/build', auth, async (req, res) => {
   try {
-    const { platform = 'android', profile = 'preview' } = req.body;
+    const { platform = 'android', profile = 'preview', mode = 'cloud' } = req.body;
+    const buildMode = mode === 'local' ? 'local' : 'cloud';
     const db = loadDB();
     const project = db.projects.find(p => p.id === req.params.id && p.userId === req.user.id);
     if (!project) return res.status(404).json({ error: 'Project not found' });
@@ -523,11 +766,14 @@ app.post('/api/projects/:id/build', auth, async (req, res) => {
       return res.status(400).json({ error: 'index.html required at project root' });
     }
 
+    if (buildMode === 'local' && platform === 'ios') {
+      return res.status(400).json({ error: 'Local iOS builds require macOS + Xcode. Use Cloud or Android.' });
+    }
+
     const buildId = uuidv4();
     const buildDir = path.join(BUILDS_DIR, buildId);
     fs.mkdirSync(buildDir, { recursive: true });
 
-    // Generate Expo project immediately
     await generateExpoProject(buildDir, project, projectDir);
 
     const buildRecord = {
@@ -536,17 +782,19 @@ app.post('/api/projects/:id/build', auth, async (req, res) => {
       userId: req.user.id,
       platform,
       profile,
+      mode: buildMode,
       status: 'prepared',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      message: 'Expo project generated. Starting pipeline…',
-      logs: [`[${new Date().toISOString().slice(11, 19)}] Expo project generated.`],
+      message: buildMode === 'local'
+        ? 'Local Android build starting…'
+        : 'Cloud build starting…',
+      logs: [`[${new Date().toISOString().slice(11, 19)}] Expo project generated (${buildMode}).`],
       artifacts: []
     };
     db.builds.push(buildRecord);
     saveDB(db);
 
-    // Fire-and-forget background pipeline (survives page leave)
     setImmediate(() => runBuildPipeline(buildId));
 
     res.json({ ok: true, build: buildRecord });
@@ -595,9 +843,24 @@ app.get('/api/builds/:id/download', auth, (req, res) => {
   const build = db.builds.find(b => b.id === req.params.id && b.userId === req.user.id);
   if (!build) return res.status(404).json({ error: 'Build not found' });
 
+  // Prefer real APK/AAB if local build produced one
+  const binaryArt = (build.artifacts || []).find(a => a.type === 'app-binary' && a.path && fs.existsSync(a.path));
+  if (binaryArt) {
+    return res.download(binaryArt.path, binaryArt.name || path.basename(binaryArt.path));
+  }
+
+  // Redirect to remote binary URL if cloud build finished
+  if (build.binaryUrl) {
+    return res.redirect(build.binaryUrl);
+  }
+  const remoteBinary = (build.artifacts || []).find(a => a.type === 'app-binary' && a.url);
+  if (remoteBinary) {
+    return res.redirect(remoteBinary.url);
+  }
+
+  // Fallback: Expo project ZIP
   const zipPath = path.join(BUILDS_DIR, `${build.id}-bundle.zip`);
   if (!fs.existsSync(zipPath)) {
-    // Create on the fly if missing
     const buildDir = path.join(BUILDS_DIR, build.id);
     if (!fs.existsSync(buildDir)) return res.status(404).json({ error: 'Build artifacts not found' });
     const zip = new AdmZip();
