@@ -1,0 +1,1166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f172a" />
+  <title>Dolphine – HTML to APK / AAB / IPA</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet" />
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    :root {
+      --bg: #0b1220;
+      --surface: #111827;
+      --surface2: #1e293b;
+      --border: #334155;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --primary: #38bdf8;
+      --primary-dim: #0ea5e9;
+      --accent: #a78bfa;
+      --success: #34d399;
+      --danger: #f87171;
+      --radius: 14px;
+      --shadow: 0 8px 30px rgba(0,0,0,.35);
+      --font: 'DM Sans', system-ui, -apple-system, sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+    a { color: var(--primary); text-decoration: none; }
+    button, input, select, textarea {
+      font-family: inherit;
+      font-size: 1rem;
+    }
+    .hidden { display: none !important; }
+
+    /* Layout */
+    #app { min-height: 100%; display: flex; flex-direction: column; }
+    .container { width: 100%; max-width: 720px; margin: 0 auto; padding: 0 16px; }
+
+    /* Auth screens */
+    .auth-screen {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 32px 16px;
+      background:
+        radial-gradient(ellipse 80% 50% at 50% -20%, rgba(56,189,248,.18), transparent),
+        var(--bg);
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      justify-content: center;
+      margin-bottom: 32px;
+    }
+    .logo-icon {
+      width: 48px; height: 48px;
+      background: linear-gradient(135deg, var(--primary), var(--accent));
+      border-radius: 14px;
+      display: grid;
+      place-items: center;
+      font-size: 1.6rem;
+    }
+    .logo h1 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+    }
+    .logo span { color: var(--muted); font-weight: 400; font-size: 0.95rem; display: block; }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      box-shadow: var(--shadow);
+    }
+    .tabs {
+      display: flex;
+      gap: 4px;
+      background: var(--surface2);
+      padding: 4px;
+      border-radius: 10px;
+      margin-bottom: 20px;
+    }
+    .tabs button {
+      flex: 1;
+      padding: 10px;
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      border-radius: 8px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: .2s;
+    }
+    .tabs button.active {
+      background: var(--surface);
+      color: var(--text);
+      box-shadow: 0 1px 4px rgba(0,0,0,.2);
+    }
+    .field { margin-bottom: 16px; }
+    .field label {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    .field input, .field textarea, .field select {
+      width: 100%;
+      padding: 12px 14px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: var(--text);
+      outline: none;
+      transition: border .2s;
+    }
+    .field input:focus, .field textarea:focus, .field select:focus {
+      border-color: var(--primary);
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px 20px;
+      border: none;
+      border-radius: 10px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: .2s;
+      width: 100%;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--primary-dim), var(--primary));
+      color: #0b1220;
+    }
+    .btn-primary:hover { filter: brightness(1.08); }
+    .btn-primary:disabled { opacity: .6; cursor: not-allowed; }
+    .btn-ghost {
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--border);
+    }
+    .btn-ghost:hover { background: var(--surface2); color: var(--text); }
+    .btn-danger {
+      background: rgba(248,113,113,.15);
+      color: var(--danger);
+      border: 1px solid rgba(248,113,113,.3);
+    }
+    .btn-sm { padding: 8px 14px; font-size: 0.875rem; width: auto; }
+    .error-msg {
+      background: rgba(248,113,113,.12);
+      color: var(--danger);
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      margin-bottom: 16px;
+      display: none;
+    }
+    .error-msg.show { display: block; }
+
+    /* App shell */
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      background: rgba(11,18,32,.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 0;
+    }
+    .topbar-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .topbar .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 1.15rem;
+    }
+    .topbar .brand .icon {
+      width: 32px; height: 32px;
+      background: linear-gradient(135deg, var(--primary), var(--accent));
+      border-radius: 9px;
+      display: grid;
+      place-items: center;
+      font-size: 1rem;
+    }
+    .user-chip {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.875rem;
+      color: var(--muted);
+    }
+    .avatar {
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      background: var(--surface2);
+      display: grid;
+      place-items: center;
+      font-weight: 600;
+      color: var(--primary);
+      border: 1px solid var(--border);
+    }
+
+    main { flex: 1; padding: 20px 0 80px; }
+
+    /* Dashboard */
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+      gap: 12px;
+    }
+    .section-header h2 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+    .projects-grid {
+      display: grid;
+      gap: 12px;
+    }
+    .project-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      cursor: pointer;
+      transition: .2s;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .project-card:hover, .project-card:active {
+      border-color: var(--primary);
+      transform: translateY(-1px);
+    }
+    .project-card h3 {
+      font-size: 1.05rem;
+      font-weight: 600;
+    }
+    .project-card p {
+      font-size: 0.875rem;
+      color: var(--muted);
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+    .badge {
+      background: var(--surface2);
+      padding: 3px 8px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+    }
+    .empty {
+      text-align: center;
+      padding: 48px 20px;
+      color: var(--muted);
+    }
+    .empty i { opacity: .5; margin-bottom: 12px; }
+
+    /* Project detail */
+    .back-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 0.9rem;
+      margin-bottom: 16px;
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0;
+    }
+    .back-btn:hover { color: var(--text); }
+    .detail-header {
+      margin-bottom: 20px;
+    }
+    .detail-header h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      margin-bottom: 4px;
+    }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 16px 0;
+    }
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .panel h3 {
+      font-size: 0.95rem;
+      font-weight: 600;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .file-list {
+      list-style: none;
+      font-size: 0.875rem;
+    }
+    .file-list li {
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+    }
+    .file-list li:last-child { border-bottom: none; }
+    .file-list .name { color: var(--text); flex: 1; word-break: break-all; }
+    .dropzone {
+      border: 2px dashed var(--border);
+      border-radius: 12px;
+      padding: 28px 16px;
+      text-align: center;
+      color: var(--muted);
+      cursor: pointer;
+      transition: .2s;
+    }
+    .dropzone:hover, .dropzone.drag {
+      border-color: var(--primary);
+      background: rgba(56,189,248,.06);
+    }
+    .dropzone input { display: none; }
+    .config-grid {
+      display: grid;
+      gap: 12px;
+    }
+    @media (min-width: 520px) {
+      .config-grid { grid-template-columns: 1fr 1fr; }
+    }
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 500;
+    }
+    .status-prepared { background: rgba(56,189,248,.15); color: var(--primary); }
+    .status-success { background: rgba(52,211,153,.15); color: var(--success); }
+    .status-failed { background: rgba(248,113,113,.15); color: var(--danger); }
+
+    /* Bottom nav (mobile) */
+    .bottom-nav {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: rgba(17,24,39,.92);
+      backdrop-filter: blur(12px);
+      border-top: 1px solid var(--border);
+      padding: 8px 0 max(8px, env(safe-area-inset-bottom));
+      display: flex;
+      justify-content: space-around;
+      z-index: 40;
+    }
+    .bottom-nav button {
+      background: none;
+      border: none;
+      color: var(--muted);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      font-size: 0.7rem;
+      font-weight: 500;
+      padding: 6px 12px;
+      cursor: pointer;
+    }
+    .bottom-nav button.active { color: var(--primary); }
+    .bottom-nav button i { width: 22px; height: 22px; }
+
+    /* Toast */
+    .toast {
+      position: fixed;
+      bottom: 90px;
+      left: 50%;
+      transform: translateX(-50%) translateY(20px);
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 12px 20px;
+      border-radius: 12px;
+      font-size: 0.9rem;
+      opacity: 0;
+      transition: .3s;
+      z-index: 100;
+      max-width: 90%;
+      text-align: center;
+      pointer-events: none;
+    }
+    .toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    /* Loading spinner */
+    .spinner {
+      width: 20px; height: 20px;
+      border: 2px solid transparent;
+      border-top-color: currentColor;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Modal */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.6);
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      z-index: 60;
+      padding: 16px;
+    }
+    @media (min-width: 520px) {
+      .modal-overlay { align-items: center; }
+    }
+    .modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px 16px 0 0;
+      width: 100%;
+      max-width: 480px;
+      max-height: 90vh;
+      overflow-y: auto;
+      padding: 24px;
+    }
+    @media (min-width: 520px) {
+      .modal { border-radius: 16px; }
+    }
+    .modal h2 {
+      font-size: 1.2rem;
+      margin-bottom: 16px;
+    }
+    .modal-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 20px;
+    }
+    .modal-actions .btn { flex: 1; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <!-- AUTH -->
+    <div id="auth-view" class="auth-screen">
+      <div class="logo">
+        <div class="logo-icon">🐬</div>
+        <div>
+          <h1>Dolphine</h1>
+          <span>HTML → APK · AAB · IPA</span>
+        </div>
+      </div>
+      <div class="container" style="max-width:400px">
+        <div class="card">
+          <div class="tabs">
+            <button type="button" class="active" data-tab="login">Login</button>
+            <button type="button" data-tab="register">Register</button>
+          </div>
+          <div id="auth-error" class="error-msg"></div>
+          <form id="login-form">
+            <div class="field">
+              <label>Email</label>
+              <input type="email" name="email" required autocomplete="email" placeholder="you@example.com" />
+            </div>
+            <div class="field">
+              <label>Password</label>
+              <input type="password" name="password" required minlength="6" autocomplete="current-password" placeholder="••••••••" />
+            </div>
+            <button type="submit" class="btn btn-primary">
+              <i data-lucide="log-in"></i> Sign in
+            </button>
+          </form>
+          <form id="register-form" class="hidden">
+            <div class="field">
+              <label>Name</label>
+              <input type="text" name="name" placeholder="Your name" />
+            </div>
+            <div class="field">
+              <label>Email</label>
+              <input type="email" name="email" required autocomplete="email" placeholder="you@example.com" />
+            </div>
+            <div class="field">
+              <label>Password</label>
+              <input type="password" name="password" required minlength="6" autocomplete="new-password" placeholder="Min 6 characters" />
+            </div>
+            <button type="submit" class="btn btn-primary">
+              <i data-lucide="user-plus"></i> Create account
+            </button>
+          </form>
+        </div>
+        <p style="text-align:center;margin-top:20px;font-size:0.8rem;color:var(--muted)">
+          Mobile-first · Expo · GitHub Actions ready
+        </p>
+      </div>
+    </div>
+
+    <!-- APP -->
+    <div id="app-view" class="hidden">
+      <header class="topbar">
+        <div class="container topbar-inner">
+          <div class="brand">
+            <div class="icon">🐬</div>
+            Dolphine
+          </div>
+          <div class="user-chip">
+            <div class="avatar" id="user-avatar">U</div>
+            <span id="user-name">User</span>
+          </div>
+        </div>
+      </header>
+
+      <main>
+        <div class="container">
+          <!-- Dashboard -->
+          <div id="dashboard-view">
+            <div class="section-header">
+              <h2>Projects</h2>
+              <button class="btn btn-primary btn-sm" id="btn-new-project">
+                <i data-lucide="plus"></i> New
+              </button>
+            </div>
+            <div id="projects-list" class="projects-grid"></div>
+          </div>
+
+          <!-- Project detail -->
+          <div id="project-view" class="hidden">
+            <button class="back-btn" id="btn-back">
+              <i data-lucide="arrow-left"></i> Projects
+            </button>
+            <div class="detail-header">
+              <h1 id="proj-name">—</h1>
+              <p id="proj-desc" style="color:var(--muted);font-size:0.9rem"></p>
+            </div>
+
+            <div class="actions">
+              <button class="btn btn-primary btn-sm" id="btn-build">
+                <i data-lucide="hammer"></i> Build
+              </button>
+              <button class="btn btn-ghost btn-sm" id="btn-edit-config">
+                <i data-lucide="settings"></i> Config
+              </button>
+              <button class="btn btn-danger btn-sm" id="btn-delete-project">
+                <i data-lucide="trash-2"></i>
+              </button>
+            </div>
+
+            <div class="panel">
+              <h3><i data-lucide="upload"></i> Upload</h3>
+              <div class="dropzone" id="dropzone">
+                <input type="file" id="file-input" accept=".zip,.html,.png,.jpg,.jpeg,.css,.js,.json,.svg,.webp" multiple />
+                <i data-lucide="file-up" style="width:32px;height:32px;margin-bottom:8px"></i>
+                <p><strong>Drop ZIP</strong> (index.html + logo.png) or files</p>
+                <p style="font-size:0.8rem;margin-top:4px">ZIP auto-creates structure · Single files update repo</p>
+              </div>
+            </div>
+
+            <div class="panel">
+              <h3><i data-lucide="folder"></i> Files</h3>
+              <ul class="file-list" id="file-list">
+                <li style="color:var(--muted)">No files yet</li>
+              </ul>
+            </div>
+
+            <div class="panel">
+              <h3><i data-lucide="history"></i> Recent builds</h3>
+              <div id="builds-list"></div>
+            </div>
+          </div>
+
+          <!-- Builds page -->
+          <div id="builds-view" class="hidden">
+            <div class="section-header">
+              <h2>Builds</h2>
+            </div>
+            <div id="all-builds-list"></div>
+          </div>
+        </div>
+      </main>
+
+      <nav class="bottom-nav">
+        <button type="button" data-nav="dashboard" class="active">
+          <i data-lucide="layout-grid"></i>
+          Projects
+        </button>
+        <button type="button" data-nav="builds">
+          <i data-lucide="package"></i>
+          Builds
+        </button>
+        <button type="button" id="btn-logout">
+          <i data-lucide="log-out"></i>
+          Logout
+        </button>
+      </nav>
+    </div>
+  </div>
+
+  <!-- New project modal -->
+  <div id="modal-new" class="modal-overlay hidden">
+    <div class="modal">
+      <h2>New project</h2>
+      <div class="field">
+        <label>Name</label>
+        <input type="text" id="new-name" placeholder="My Awesome App" />
+      </div>
+      <div class="field">
+        <label>Description (optional)</label>
+        <textarea id="new-desc" rows="2" placeholder="Short description"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="modal-new-cancel">Cancel</button>
+        <button class="btn btn-primary" id="modal-new-create">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Config modal -->
+  <div id="modal-config" class="modal-overlay hidden">
+    <div class="modal">
+      <h2>App configuration</h2>
+      <div class="config-grid">
+        <div class="field">
+          <label>App name</label>
+          <input type="text" id="cfg-name" />
+        </div>
+        <div class="field">
+          <label>Slug</label>
+          <input type="text" id="cfg-slug" />
+        </div>
+        <div class="field">
+          <label>Version</label>
+          <input type="text" id="cfg-version" />
+        </div>
+        <div class="field">
+          <label>Orientation</label>
+          <select id="cfg-orientation">
+            <option value="portrait">Portrait</option>
+            <option value="landscape">Landscape</option>
+            <option value="default">Default</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Android package</label>
+          <input type="text" id="cfg-android-package" />
+        </div>
+        <div class="field">
+          <label>iOS bundle ID</label>
+          <input type="text" id="cfg-ios-bundle" />
+        </div>
+        <div class="field">
+          <label>Splash bg color</label>
+          <input type="text" id="cfg-splash-bg" placeholder="#0f172a" />
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="modal-config-cancel">Cancel</button>
+        <button class="btn btn-primary" id="modal-config-save">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Build modal -->
+  <div id="modal-build" class="modal-overlay hidden">
+    <div class="modal">
+      <h2>Start build</h2>
+      <div class="field">
+        <label>Platform</label>
+        <select id="build-platform">
+          <option value="android">Android (APK / AAB)</option>
+          <option value="ios">iOS (IPA)</option>
+          <option value="all">Both</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Profile</label>
+        <select id="build-profile">
+          <option value="preview">Preview (APK, internal)</option>
+          <option value="production">Production (AAB / store)</option>
+          <option value="development">Development client</option>
+        </select>
+      </div>
+      <p style="font-size:0.85rem;color:var(--muted);margin-top:8px">
+        Generates a full Expo project with WebView + GitHub Action YAML. Real cloud builds require EXPO_TOKEN.
+      </p>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="modal-build-cancel">Cancel</button>
+        <button class="btn btn-primary" id="modal-build-start">Prepare build</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    // ---------- State ----------
+    const state = {
+      token: localStorage.getItem('dolphine_token') || null,
+      user: JSON.parse(localStorage.getItem('dolphine_user') || 'null'),
+      projects: [],
+      currentProject: null,
+      builds: []
+    };
+
+    const $ = (sel) => document.querySelector(sel);
+    const $$ = (sel) => document.querySelectorAll(sel);
+
+    // ---------- API ----------
+    async function api(path, opts = {}) {
+      const headers = { ...(opts.headers || {}) };
+      if (state.token) headers['Authorization'] = `Bearer ${state.token}`;
+      if (!(opts.body instanceof FormData)) {
+        headers['Content-Type'] = 'application/json';
+      }
+      const res = await fetch(`/api${path}`, { ...opts, headers });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || res.statusText);
+      return data;
+    }
+
+    // ---------- UI helpers ----------
+    function toast(msg, ms = 2800) {
+      const el = $('#toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      setTimeout(() => el.classList.remove('show'), ms);
+    }
+    function showError(el, msg) {
+      el.textContent = msg;
+      el.classList.add('show');
+    }
+    function hideError(el) { el.classList.remove('show'); }
+
+    function showView(name) {
+      ['auth-view', 'app-view'].forEach(id => {
+        const el = document.getElementById(id);
+        if (id === name) el.classList.remove('hidden');
+        else el.classList.add('hidden');
+      });
+      if (name === 'app-view') {
+        showAppSection('dashboard');
+      }
+    }
+
+    function showAppSection(section) {
+      ['dashboard-view', 'project-view', 'builds-view'].forEach(id => {
+        const el = document.getElementById(id);
+        if (id === section + '-view') el.classList.remove('hidden');
+        else el.classList.add('hidden');
+      });
+      $$('.bottom-nav button[data-nav]').forEach(b => {
+        b.classList.toggle('active', b.dataset.nav === section || (section === 'project' && b.dataset.nav === 'dashboard'));
+      });
+    }
+
+    // ---------- Auth ----------
+    function setAuth(token, user) {
+      state.token = token;
+      state.user = user;
+      localStorage.setItem('dolphine_token', token);
+      localStorage.setItem('dolphine_user', JSON.stringify(user));
+      $('#user-name').textContent = user.name || user.email;
+      $('#user-avatar').textContent = (user.name || user.email || 'U')[0].toUpperCase();
+      showView('app-view');
+      loadProjects();
+    }
+
+    function logout() {
+      state.token = null;
+      state.user = null;
+      state.projects = [];
+      state.currentProject = null;
+      localStorage.removeItem('dolphine_token');
+      localStorage.removeItem('dolphine_user');
+      showView('auth-view');
+    }
+
+    // Tabs
+    $$('.tabs button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        $$('.tabs button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const tab = btn.dataset.tab;
+        $('#login-form').classList.toggle('hidden', tab !== 'login');
+        $('#register-form').classList.toggle('hidden', tab !== 'register');
+        hideError($('#auth-error'));
+      });
+    });
+
+    $('#login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      hideError($('#auth-error'));
+      const fd = new FormData(e.target);
+      try {
+        const data = await api('/login', {
+          method: 'POST',
+          body: JSON.stringify({ email: fd.get('email'), password: fd.get('password') })
+        });
+        setAuth(data.token, data.user);
+        toast('Welcome back!');
+      } catch (err) {
+        showError($('#auth-error'), err.message);
+      }
+    });
+
+    $('#register-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      hideError($('#auth-error'));
+      const fd = new FormData(e.target);
+      try {
+        const data = await api('/register', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: fd.get('name'),
+            email: fd.get('email'),
+            password: fd.get('password')
+          })
+        });
+        setAuth(data.token, data.user);
+        toast('Account created!');
+      } catch (err) {
+        showError($('#auth-error'), err.message);
+      }
+    });
+
+    $('#btn-logout').addEventListener('click', logout);
+
+    // ---------- Projects ----------
+    async function loadProjects() {
+      try {
+        state.projects = await api('/projects');
+        renderProjects();
+      } catch (e) {
+        if (e.message.includes('Unauthorized') || e.message.includes('Invalid')) logout();
+        else toast(e.message);
+      }
+    }
+
+    function renderProjects() {
+      const list = $('#projects-list');
+      if (!state.projects.length) {
+        list.innerHTML = `
+          <div class="empty">
+            <i data-lucide="folder-plus" style="width:48px;height:48px"></i>
+            <p>No projects yet</p>
+            <p style="font-size:0.85rem;margin-top:6px">Create one and upload your HTML + logo.png</p>
+          </div>`;
+        lucide.createIcons();
+        return;
+      }
+      list.innerHTML = state.projects.map(p => `
+        <div class="project-card" data-id="${p.id}">
+          <h3>${escapeHtml(p.name)}</h3>
+          <p>${escapeHtml(p.description || 'No description')}</p>
+          <div class="meta">
+            <span class="badge">${(p.files || []).length} files</span>
+            <span>${new Date(p.updatedAt || p.createdAt).toLocaleDateString()}</span>
+          </div>
+        </div>
+      `).join('');
+      list.querySelectorAll('.project-card').forEach(card => {
+        card.addEventListener('click', () => openProject(card.dataset.id));
+      });
+      lucide.createIcons();
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // New project
+    $('#btn-new-project').addEventListener('click', () => {
+      $('#new-name').value = '';
+      $('#new-desc').value = '';
+      $('#modal-new').classList.remove('hidden');
+    });
+    $('#modal-new-cancel').addEventListener('click', () => $('#modal-new').classList.add('hidden'));
+    $('#modal-new-create').addEventListener('click', async () => {
+      const name = $('#new-name').value.trim();
+      if (!name) return toast('Name required');
+      try {
+        const p = await api('/projects', {
+          method: 'POST',
+          body: JSON.stringify({ name, description: $('#new-desc').value.trim() })
+        });
+        $('#modal-new').classList.add('hidden');
+        state.projects.unshift(p);
+        renderProjects();
+        openProject(p.id);
+        toast('Project created');
+      } catch (e) { toast(e.message); }
+    });
+
+    async function openProject(id) {
+      try {
+        const p = await api(`/projects/${id}`);
+        state.currentProject = p;
+        $('#proj-name').textContent = p.name;
+        $('#proj-desc').textContent = p.description || '';
+        renderFiles(p.files || []);
+        showAppSection('project');
+        loadProjectBuilds(id);
+      } catch (e) { toast(e.message); }
+    }
+
+    $('#btn-back').addEventListener('click', () => {
+      state.currentProject = null;
+      showAppSection('dashboard');
+      loadProjects();
+    });
+
+    function renderFiles(files) {
+      const ul = $('#file-list');
+      if (!files.length) {
+        ul.innerHTML = '<li style="color:var(--muted)">No files yet — upload a ZIP or index.html</li>';
+        return;
+      }
+      ul.innerHTML = files.map(f => `
+        <li>
+          <i data-lucide="file" style="width:16px;height:16px"></i>
+          <span class="name">${escapeHtml(f)}</span>
+        </li>
+      `).join('');
+      lucide.createIcons();
+    }
+
+    // Upload
+    const dropzone = $('#dropzone');
+    const fileInput = $('#file-input');
+    dropzone.addEventListener('click', () => fileInput.click());
+    dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('drag'); });
+    dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag'));
+    dropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('drag');
+      if (e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files);
+    });
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files.length) uploadFiles(fileInput.files);
+      fileInput.value = '';
+    });
+
+    async function uploadFiles(fileList) {
+      if (!state.currentProject) return;
+      for (const file of fileList) {
+        const fd = new FormData();
+        fd.append('file', file);
+        try {
+          toast(`Uploading ${file.name}…`);
+          const res = await api(`/projects/${state.currentProject.id}/upload`, {
+            method: 'POST',
+            body: fd
+          });
+          state.currentProject = res.project;
+          renderFiles(res.files || []);
+          toast(`${file.name} uploaded`);
+        } catch (e) {
+          toast(e.message);
+        }
+      }
+    }
+
+    // Delete project
+    $('#btn-delete-project').addEventListener('click', async () => {
+      if (!state.currentProject) return;
+      if (!confirm(`Delete “${state.currentProject.name}”? This cannot be undone.`)) return;
+      try {
+        await api(`/projects/${state.currentProject.id}`, { method: 'DELETE' });
+        toast('Project deleted');
+        state.currentProject = null;
+        showAppSection('dashboard');
+        loadProjects();
+      } catch (e) { toast(e.message); }
+    });
+
+    // Config
+    $('#btn-edit-config').addEventListener('click', () => {
+      const c = state.currentProject?.config || {};
+      $('#cfg-name').value = c.name || state.currentProject.name;
+      $('#cfg-slug').value = c.slug || '';
+      $('#cfg-version').value = c.version || '1.0.0';
+      $('#cfg-orientation').value = c.orientation || 'portrait';
+      $('#cfg-android-package').value = (c.android && c.android.package) || '';
+      $('#cfg-ios-bundle').value = (c.ios && c.ios.bundleIdentifier) || '';
+      $('#cfg-splash-bg').value = (c.splash && c.splash.backgroundColor) || '#0f172a';
+      $('#modal-config').classList.remove('hidden');
+    });
+    $('#modal-config-cancel').addEventListener('click', () => $('#modal-config').classList.add('hidden'));
+    $('#modal-config-save').addEventListener('click', async () => {
+      try {
+        const config = {
+          name: $('#cfg-name').value.trim(),
+          slug: $('#cfg-slug').value.trim(),
+          version: $('#cfg-version').value.trim(),
+          orientation: $('#cfg-orientation').value,
+          android: {
+            ...(state.currentProject.config.android || {}),
+            package: $('#cfg-android-package').value.trim()
+          },
+          ios: {
+            ...(state.currentProject.config.ios || {}),
+            bundleIdentifier: $('#cfg-ios-bundle').value.trim()
+          },
+          splash: {
+            ...(state.currentProject.config.splash || {}),
+            backgroundColor: $('#cfg-splash-bg').value.trim() || '#0f172a'
+          }
+        };
+        const updated = await api(`/projects/${state.currentProject.id}`, {
+          method: 'PUT',
+          body: JSON.stringify({ name: config.name, config })
+        });
+        state.currentProject = updated;
+        $('#proj-name').textContent = updated.name;
+        $('#modal-config').classList.add('hidden');
+        toast('Config saved');
+      } catch (e) { toast(e.message); }
+    });
+
+    // Build
+    $('#btn-build').addEventListener('click', () => {
+      if (!state.currentProject) return;
+      $('#modal-build').classList.remove('hidden');
+    });
+    $('#modal-build-cancel').addEventListener('click', () => $('#modal-build').classList.add('hidden'));
+    $('#modal-build-start').addEventListener('click', async () => {
+      const platform = $('#build-platform').value;
+      const profile = $('#build-profile').value;
+      const btn = $('#modal-build-start');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span> Preparing…';
+      try {
+        const res = await api(`/projects/${state.currentProject.id}/build`, {
+          method: 'POST',
+          body: JSON.stringify({ platform, profile })
+        });
+        $('#modal-build').classList.add('hidden');
+        toast('Build prepared! Expo project + GitHub Action ready.');
+        loadProjectBuilds(state.currentProject.id);
+      } catch (e) {
+        toast(e.message);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = 'Prepare build';
+      }
+    });
+
+    async function loadProjectBuilds(projectId) {
+      try {
+        const all = await api('/builds');
+        const list = all.filter(b => b.projectId === projectId);
+        const el = $('#builds-list');
+        if (!list.length) {
+          el.innerHTML = '<p style="color:var(--muted);font-size:0.9rem">No builds yet</p>';
+          return;
+        }
+        el.innerHTML = list.slice(0, 5).map(b => `
+          <div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:8px">
+            <div>
+              <div style="font-weight:500;font-size:0.9rem">${b.platform} · ${b.profile}</div>
+              <div style="font-size:0.75rem;color:var(--muted)">${new Date(b.createdAt).toLocaleString()}</div>
+            </div>
+            <span class="status-pill status-${b.status}">${b.status}</span>
+          </div>
+        `).join('');
+      } catch (e) { /* ignore */ }
+    }
+
+    // Builds page
+    async function loadAllBuilds() {
+      try {
+        state.builds = await api('/builds');
+        const el = $('#all-builds-list');
+        if (!state.builds.length) {
+          el.innerHTML = `<div class="empty"><i data-lucide="package" style="width:48px;height:48px"></i><p>No builds yet</p></div>`;
+          lucide.createIcons();
+          return;
+        }
+        el.innerHTML = state.builds.map(b => {
+          const proj = state.projects.find(p => p.id === b.projectId);
+          return `
+            <div class="panel" style="margin-bottom:12px">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+                <div>
+                  <div style="font-weight:600">${escapeHtml(proj?.name || 'Project')}</div>
+                  <div style="font-size:0.85rem;color:var(--muted);margin-top:2px">${b.platform} · ${b.profile}</div>
+                  <div style="font-size:0.75rem;color:var(--muted);margin-top:4px">${new Date(b.createdAt).toLocaleString()}</div>
+                </div>
+                <span class="status-pill status-${b.status}">${b.status}</span>
+              </div>
+              <p style="font-size:0.85rem;color:var(--muted);margin-top:8px">${escapeHtml(b.message || '')}</p>
+            </div>
+          `;
+        }).join('');
+      } catch (e) { toast(e.message); }
+    }
+
+    // Nav
+    $$('.bottom-nav button[data-nav]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const nav = btn.dataset.nav;
+        if (nav === 'dashboard') {
+          state.currentProject = null;
+          showAppSection('dashboard');
+          loadProjects();
+        } else if (nav === 'builds') {
+          showAppSection('builds');
+          loadAllBuilds();
+        }
+      });
+    });
+
+    // Init
+    lucide.createIcons();
+    if (state.token && state.user) {
+      showView('app-view');
+      loadProjects();
+    } else {
+      showView('auth-view');
+    }
+  </script>
+</body>
+</html>
