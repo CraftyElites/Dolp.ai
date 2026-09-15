@@ -22,11 +22,31 @@ Mobile-first web app that turns a simple HTML project into native mobile builds 
 
 ```bash
 cd dolphine
+cp .env.example .env   # optional — put secrets here
 npm install
 npm start
 ```
 
 Open **http://localhost:3847**
+
+### Secrets (`.env`)
+
+No need to `export` anything. Edit `.env`:
+
+```
+PORT=3847
+JWT_SECRET=your-long-secret
+
+# Optional — auto-trigger GitHub Action on build
+GITHUB_TOKEN=ghp_xxxxxxxxxxxx
+GITHUB_REPO=youruser/your-repo
+
+# Optional — Expo EAS
+EXPO_TOKEN=xxxxxxxx
+```
+
+Restart the server after changing `.env`.  
+`.env` is gitignored so tokens stay private.
 
 ## How builds work
 
