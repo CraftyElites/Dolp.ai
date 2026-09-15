@@ -347,6 +347,48 @@
     }
     .file-list li:last-child { border-bottom: none; }
     .file-list .name { color: var(--text); flex: 1; word-break: break-all; }
+    .file-actions { display: flex; gap: 4px; }
+    .file-actions button {
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      padding: 4px;
+      border-radius: 6px;
+    }
+    .file-actions button:hover { color: var(--primary); background: var(--surface2); }
+    .log-box {
+      background: #0a0f1a;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.75rem;
+      line-height: 1.55;
+      max-height: 220px;
+      overflow-y: auto;
+      color: #94a3b8;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .log-box .ok { color: #34d399; }
+    .log-box .err { color: #f87171; }
+    .build-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+    .build-card .head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .status-building { background: rgba(167,139,250,.15); color: var(--accent); }
+    .status-queued { background: rgba(148,163,184,.15); color: var(--muted); }
     .dropzone {
       border: 2px dashed var(--border);
       border-radius: 12px;
@@ -728,7 +770,7 @@
       </p>
       <div class="modal-actions">
         <button class="btn btn-ghost" id="modal-build-cancel">Cancel</button>
-        <button class="btn btn-primary" id="modal-build-start">Prepare build</button>
+        <button class="btn btn-primary" id="modal-build-start">Start build</button>
       </div>
     </div>
   </div>
@@ -755,10 +797,18 @@
       if (!(opts.body instanceof FormData)) {
         headers['Content-Type'] = 'application/json';
       }
-      const res = await fetch(`/api${path}`, { ...opts, headers });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || res.statusText);
-      return data;
+      try {
+        const res = await fetch(`/api${path}`, { ...opts, headers });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || res.statusText || `HTTP ${res.status}`);
+        return data;
+      } catch (err) {
+        // Network-level failure (common in Codespaces when port is not forwarded)
+        if (err.name === 'TypeError' && (err.message === 'Failed to fetch' || err.message.includes('NetworkError'))) {
+          throw new Error('Failed to reach server. In Codespaces: make sure port 3847 is forwarded and you are using the Codespace URL (not localhost).');
+        }
+        throw err;
+      }
     }
 
     // ---------- UI helpers ----------
@@ -959,11 +1009,50 @@
         return;
       }
       ul.innerHTML = files.map(f => `
-        <li>
+        <li data-file="${escapeHtml(f)}">
           <i data-lucide="file" style="width:16px;height:16px"></i>
           <span class="name">${escapeHtml(f)}</span>
+          <div class="file-actions">
+            <button type="button" class="btn-rename" title="Rename"><i data-lucide="pencil" style="width:15px;height:15px"></i></button>
+            <button type="button" class="btn-rm" title="Delete"><i data-lucide="trash-2" style="width:15px;height:15px"></i></button>
+          </div>
         </li>
       `).join('');
+      ul.querySelectorAll('.btn-rename').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const li = btn.closest('li');
+          const from = li.dataset.file;
+          const to = prompt('New name (relative path):', from);
+          if (!to || to === from) return;
+          try {
+            const res = await api(`/projects/${state.currentProject.id}/rename`, {
+              method: 'POST',
+              body: JSON.stringify({ from, to })
+            });
+            state.currentProject = res.project;
+            renderFiles(res.files || []);
+            toast('Renamed');
+          } catch (err) { toast(err.message); }
+        });
+      });
+      ul.querySelectorAll('.btn-rm').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const li = btn.closest('li');
+          const p = li.dataset.file;
+          if (!confirm(`Delete ${p}?`)) return;
+          try {
+            const res = await api(`/projects/${state.currentProject.id}/delete-file`, {
+              method: 'POST',
+              body: JSON.stringify({ path: p })
+            });
+            state.currentProject = res.project;
+            renderFiles(res.files || []);
+            toast('Deleted');
+          } catch (err) { toast(err.message); }
+        });
+      });
       lucide.createIcons();
     }
 
@@ -1061,6 +1150,8 @@
     });
 
     // Build
+    let logPollTimer = null;
+
     $('#btn-build').addEventListener('click', () => {
       if (!state.currentProject) return;
       $('#modal-build').classList.remove('hidden');
@@ -1071,22 +1162,59 @@
       const profile = $('#build-profile').value;
       const btn = $('#modal-build-start');
       btn.disabled = true;
-      btn.innerHTML = '<span class="spinner"></span> Preparing…';
+      btn.innerHTML = '<span class="spinner"></span> Starting…';
       try {
         const res = await api(`/projects/${state.currentProject.id}/build`, {
           method: 'POST',
           body: JSON.stringify({ platform, profile })
         });
         $('#modal-build').classList.add('hidden');
-        toast('Build prepared! Expo project + GitHub Action ready.');
+        toast('Build started — runs in background even if you leave.');
         loadProjectBuilds(state.currentProject.id);
+        // Start watching this build
+        if (res.build && res.build.id) startLogWatch(res.build.id);
       } catch (e) {
         toast(e.message);
       } finally {
         btn.disabled = false;
-        btn.innerHTML = 'Prepare build';
+        btn.innerHTML = 'Start build';
       }
     });
+
+    function statusClass(s) {
+      if (s === 'success') return 'status-success';
+      if (s === 'failed') return 'status-failed';
+      if (s === 'building') return 'status-building';
+      if (s === 'queued') return 'status-queued';
+      return 'status-prepared';
+    }
+
+    function renderBuildCard(b, withLogs = false) {
+      const canDownload = b.status === 'success' || (b.artifacts && b.artifacts.length);
+      return `
+        <div class="build-card" data-build="${b.id}">
+          <div class="head">
+            <div>
+              <div style="font-weight:600;font-size:0.95rem">${escapeHtml(b.platform)} · ${escapeHtml(b.profile)}</div>
+              <div style="font-size:0.75rem;color:var(--muted);margin-top:2px">${new Date(b.createdAt).toLocaleString()}</div>
+            </div>
+            <span class="status-pill ${statusClass(b.status)}">${escapeHtml(b.status)}</span>
+          </div>
+          <p style="font-size:0.85rem;color:var(--muted);margin-bottom:10px">${escapeHtml(b.message || '')}</p>
+          ${withLogs ? `<div class="log-box" id="log-${b.id}">Loading logs…</div>` : ''}
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px">
+            <button class="btn btn-ghost btn-sm btn-watch" data-id="${b.id}">
+              <i data-lucide="terminal"></i> Logs
+            </button>
+            ${canDownload ? `
+              <a class="btn btn-primary btn-sm" href="/api/builds/${b.id}/download" 
+                 onclick="event.preventDefault(); downloadBuild('${b.id}')">
+                <i data-lucide="download"></i> Download bundle
+              </a>` : ''}
+          </div>
+        </div>
+      `;
+    }
 
     async function loadProjectBuilds(projectId) {
       try {
@@ -1097,16 +1225,80 @@
           el.innerHTML = '<p style="color:var(--muted);font-size:0.9rem">No builds yet</p>';
           return;
         }
-        el.innerHTML = list.slice(0, 5).map(b => `
-          <div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:8px">
-            <div>
-              <div style="font-weight:500;font-size:0.9rem">${b.platform} · ${b.profile}</div>
-              <div style="font-size:0.75rem;color:var(--muted)">${new Date(b.createdAt).toLocaleString()}</div>
-            </div>
-            <span class="status-pill status-${b.status}">${b.status}</span>
-          </div>
-        `).join('');
+        el.innerHTML = list.slice(0, 8).map(b => renderBuildCard(b, false)).join('');
+        el.querySelectorAll('.btn-watch').forEach(btn => {
+          btn.addEventListener('click', () => startLogWatch(btn.dataset.id));
+        });
+        lucide.createIcons();
       } catch (e) { /* ignore */ }
+    }
+
+    async function downloadBuild(id) {
+      try {
+        const res = await fetch(`/api/builds/${id}/download`, {
+          headers: { Authorization: `Bearer ${state.token}` }
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || 'Download failed');
+        }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `dolphine-${id.slice(0, 8)}-expo.zip`;
+        a.click();
+        URL.revokeObjectURL(url);
+        toast('Download started');
+      } catch (e) {
+        toast(e.message);
+      }
+    }
+    window.downloadBuild = downloadBuild;
+
+    function startLogWatch(buildId) {
+      // Show log panel under builds list
+      let panel = document.getElementById('live-log-panel');
+      if (!panel) {
+        panel = document.createElement('div');
+        panel.id = 'live-log-panel';
+        panel.className = 'panel';
+        panel.innerHTML = `
+          <h3><i data-lucide="terminal"></i> Live build log</h3>
+          <div class="log-box" id="live-log-box" style="max-height:280px"></div>
+          <p style="font-size:0.75rem;color:var(--muted);margin-top:8px">Build continues even if you leave this page.</p>
+        `;
+        const buildsList = $('#builds-list');
+        buildsList.parentNode.insertBefore(panel, buildsList.nextSibling);
+        lucide.createIcons();
+      }
+      panel.style.display = 'block';
+
+      if (logPollTimer) clearInterval(logPollTimer);
+
+      const poll = async () => {
+        try {
+          const data = await api(`/builds/${buildId}/logs`);
+          const box = $('#live-log-box');
+          if (box) {
+            box.innerHTML = (data.logs || []).map(line => {
+              let cls = '';
+              if (line.includes('✅') || line.toLowerCase().includes('complete')) cls = 'ok';
+              if (line.includes('❌') || line.toLowerCase().includes('failed')) cls = 'err';
+              return `<div class="${cls}">${escapeHtml(line)}</div>`;
+            }).join('');
+            box.scrollTop = box.scrollHeight;
+          }
+          // Refresh cards
+          if (state.currentProject) loadProjectBuilds(state.currentProject.id);
+          if (data.status === 'success' || data.status === 'failed') {
+            clearInterval(logPollTimer);
+            logPollTimer = null;
+          }
+        } catch (_) {}
+      };
+      poll();
+      logPollTimer = setInterval(poll, 1500);
     }
 
     // Builds page
@@ -1121,20 +1313,16 @@
         }
         el.innerHTML = state.builds.map(b => {
           const proj = state.projects.find(p => p.id === b.projectId);
+          const name = proj?.name || 'Project';
           return `
-            <div class="panel" style="margin-bottom:12px">
-              <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
-                <div>
-                  <div style="font-weight:600">${escapeHtml(proj?.name || 'Project')}</div>
-                  <div style="font-size:0.85rem;color:var(--muted);margin-top:2px">${b.platform} · ${b.profile}</div>
-                  <div style="font-size:0.75rem;color:var(--muted);margin-top:4px">${new Date(b.createdAt).toLocaleString()}</div>
-                </div>
-                <span class="status-pill status-${b.status}">${b.status}</span>
-              </div>
-              <p style="font-size:0.85rem;color:var(--muted);margin-top:8px">${escapeHtml(b.message || '')}</p>
-            </div>
+            <div style="margin-bottom:4px;font-size:0.8rem;color:var(--muted)">${escapeHtml(name)}</div>
+            ${renderBuildCard(b, false)}
           `;
         }).join('');
+        el.querySelectorAll('.btn-watch').forEach(btn => {
+          btn.addEventListener('click', () => startLogWatch(btn.dataset.id));
+        });
+        lucide.createIcons();
       } catch (e) { toast(e.message); }
     }
 
