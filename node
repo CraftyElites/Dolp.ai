@@ -1,0 +1,9 @@
+
+> dolphine@1.0.0 start
+> node server.js start server.js 🐬 Dolphine running at http://0.0.0.0:3847 Local: http://localhost:3847 Codespaces: forward port 3847 and open the URL^C
+
+
+  🐬  Dolphine running at http://0.0.0.0:3847
+     Local:      http://localhost:3847
+     Codespaces: forward port 3847 and open the URL
+

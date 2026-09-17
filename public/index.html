@@ -1222,6 +1222,9 @@
             <button class="btn btn-ghost btn-sm btn-watch" data-id="${b.id}">
               <i data-lucide="terminal"></i> Logs
             </button>
+            <button class="btn btn-ghost btn-sm btn-copy-log" data-id="${b.id}">
+              <i data-lucide="copy"></i> Copy log
+            </button>
             ${binary ? `
               <a class="btn btn-primary btn-sm" href="${escapeHtml(binary.url)}" target="_blank" rel="noopener">
                 <i data-lucide="download"></i> Download APK/AAB
@@ -1239,6 +1242,9 @@
                  onclick="event.preventDefault(); downloadBuild('${b.id}')">
                 <i data-lucide="package"></i> Expo project ZIP
               </a>` : ''}
+            <button class="btn btn-danger btn-sm btn-delete-build" data-id="${b.id}">
+              <i data-lucide="trash-2"></i> Delete
+            </button>
           </div>
         </div>
       `;
@@ -1256,6 +1262,12 @@
         el.innerHTML = list.slice(0, 8).map(b => renderBuildCard(b, false)).join('');
         el.querySelectorAll('.btn-watch').forEach(btn => {
           btn.addEventListener('click', () => startLogWatch(btn.dataset.id));
+        });
+        el.querySelectorAll('.btn-copy-log').forEach(btn => {
+          btn.addEventListener('click', () => copyBuildLog(btn.dataset.id));
+        });
+        el.querySelectorAll('.btn-delete-build').forEach(btn => {
+          btn.addEventListener('click', () => deleteBuild(btn.dataset.id, () => loadProjectBuilds(projectId)));
         });
         lucide.createIcons();
       } catch (e) { /* ignore */ }
@@ -1284,6 +1296,31 @@
     }
     window.downloadBuild = downloadBuild;
 
+    async function deleteBuild(id, onDone) {
+      if (!confirm('Delete this build? This removes its logs and any downloaded APK/AAB.')) return;
+      try {
+        await api(`/builds/${id}`, { method: 'DELETE' });
+        toast('Build deleted');
+        if (typeof onDone === 'function') onDone();
+      } catch (e) {
+        toast(e.message);
+      }
+    }
+    window.deleteBuild = deleteBuild;
+
+    async function copyBuildLog(id) {
+      try {
+        const data = await api(`/builds/${id}/logs`);
+        const text = (data.logs || []).join('\n');
+        if (!text) { toast('No logs to copy yet'); return; }
+        await navigator.clipboard.writeText(text);
+        toast('Log copied to clipboard');
+      } catch (e) {
+        toast('Copy failed: ' + e.message);
+      }
+    }
+    window.copyBuildLog = copyBuildLog;
+
     function startLogWatch(buildId) {
       // Show log panel under builds list
       let panel = document.getElementById('live-log-panel');
@@ -1292,13 +1329,18 @@
         panel.id = 'live-log-panel';
         panel.className = 'panel';
         panel.innerHTML = `
-          <h3><i data-lucide="terminal"></i> Live build log</h3>
+          <h3><i data-lucide="terminal"></i> Live build log
+            <button class="btn btn-ghost btn-sm" id="live-log-copy" style="float:right">
+              <i data-lucide="copy"></i> Copy log
+            </button>
+          </h3>
           <div class="log-box" id="live-log-box" style="max-height:280px"></div>
           <p style="font-size:0.75rem;color:var(--muted);margin-top:8px">Build continues even if you leave this page.</p>
         `;
         const buildsList = $('#builds-list');
         buildsList.parentNode.insertBefore(panel, buildsList.nextSibling);
         lucide.createIcons();
+        document.getElementById('live-log-copy').addEventListener('click', () => copyBuildLog(buildId));
       }
       panel.style.display = 'block';
 
@@ -1349,6 +1391,12 @@
         }).join('');
         el.querySelectorAll('.btn-watch').forEach(btn => {
           btn.addEventListener('click', () => startLogWatch(btn.dataset.id));
+        });
+        el.querySelectorAll('.btn-copy-log').forEach(btn => {
+          btn.addEventListener('click', () => copyBuildLog(btn.dataset.id));
+        });
+        el.querySelectorAll('.btn-delete-build').forEach(btn => {
+          btn.addEventListener('click', () => deleteBuild(btn.dataset.id, loadAllBuilds));
         });
         lucide.createIcons();
       } catch (e) { toast(e.message); }

@@ -1,6 +1,9 @@
 /**
  * Dolphine – HTML → APK / AAB / IPA
  * Minimal, robust, JSON-DB, Expo + GitHub Actions ready
+ *
+ * Local build: tries EAS local when EXPO_TOKEN is set; on failure falls back to
+ * expo prebuild + Gradle (assembleRelease / bundleRelease).
  */
 const path = require('path');
 const fs = require('fs');
@@ -412,7 +415,65 @@ function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
-// Run shell command, stream lines into build log
+// Find a Java 17 (or 11/21) JDK on this machine, since Gradle for RN/Expo
+// builds chokes on very new JDKs (e.g. "Unsupported class file major version 69" = JDK 25).
+// Codespaces / Ubuntu images commonly install Temurin under /usr/lib/jvm.
+function findCompatibleJavaHome() {
+  if (process.env.GRADLE_JAVA_HOME && fs.existsSync(process.env.GRADLE_JAVA_HOME)) {
+    return process.env.GRADLE_JAVA_HOME;
+  }
+  const candidates = [
+    // Preferred order: 17 first (Expo/RN default target), then 11, then 21
+    '/usr/lib/jvm/temurin-17-jdk-amd64',
+    '/usr/lib/jvm/java-17-openjdk-amd64',
+    '/usr/lib/jvm/temurin-11-jdk-amd64',
+    '/usr/lib/jvm/java-11-openjdk-amd64',
+    '/usr/lib/jvm/temurin-21-jdk-amd64',
+    '/usr/lib/jvm/java-21-openjdk-amd64'
+  ];
+  for (const dir of candidates) {
+    if (fs.existsSync(path.join(dir, 'bin', 'java'))) return dir;
+  }
+  // Fallback: scan /usr/lib/jvm for anything named 17/11/21
+  try {
+    const jvmRoot = '/usr/lib/jvm';
+    if (fs.existsSync(jvmRoot)) {
+      const entries = fs.readdirSync(jvmRoot);
+      const preferred = ['17', '11', '21'];
+      for (const ver of preferred) {
+        const match = entries.find(e => e.includes(`-${ver}-`) || e.includes(`${ver}.0`));
+        if (match && fs.existsSync(path.join(jvmRoot, match, 'bin', 'java'))) {
+          return path.join(jvmRoot, match);
+        }
+      }
+    }
+  } catch (_) {}
+  return null; // none found — caller should warn and fall back to system default
+}
+
+// Find the Android SDK, checking env vars first, then common install
+// locations — so builds don't silently break just because ANDROID_HOME
+// wasn't exported into the process that's running the Node server
+// (e.g. server started before .bashrc was sourced, or from a different shell/session).
+function findAndroidSdkHome() {
+  const envCandidates = [process.env.ANDROID_HOME, process.env.ANDROID_SDK_ROOT].filter(Boolean);
+  for (const dir of envCandidates) {
+    if (fs.existsSync(dir)) return dir;
+  }
+  const pathCandidates = [
+    path.join(process.env.HOME || '', 'android-sdk'),      // setup-android-sdk.sh default
+    path.join(process.env.HOME || '', 'Android', 'Sdk'),   // Android Studio default on Linux
+    '/usr/local/lib/android/sdk',                            // common devcontainer feature default
+    '/opt/android-sdk'
+  ];
+  for (const dir of pathCandidates) {
+    if (dir && fs.existsSync(dir) && fs.existsSync(path.join(dir, 'platform-tools'))) {
+      return dir;
+    }
+  }
+  return null;
+}
+
 async function runCmd(buildId, cmd, cwd, env = {}) {
   appendLog(buildId, `$ ${cmd}`);
   try {
@@ -437,48 +498,102 @@ async function runCmd(buildId, cmd, cwd, env = {}) {
 }
 
 // Poll Expo GraphQL for build status (using EXPO_TOKEN)
+// NOTE: Expo's schema has no root `builds(filter:)` list — a single build is
+// fetched via `builds { byId(buildId: $id) }`. The old query silently returned
+// { data: { builds: null }, errors: [...] }, which made every poll look like
+// "still queued" until the deadline expired.
 async function pollExpoBuild(buildId, expoBuildId, expoToken, maxMinutes = 25) {
   const deadline = Date.now() + maxMinutes * 60 * 1000;
   appendLog(buildId, `Polling Expo build ${expoBuildId}…`);
 
-  while (Date.now() < deadline) {
+  let lastStatus = null;
+  let graphqlBroken = false;
+
+  const pickUrl = (b) =>
+    b?.artifacts?.applicationArchiveUrl ||
+    b?.artifacts?.buildUrl ||
+    b?.artifacts?.url ||
+    null;
+
+  // Fallback: ask eas-cli directly. Slower, but immune to schema drift.
+  async function viaCli() {
     try {
-      const res = await fetch('https://api.expo.dev/graphql', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${expoToken}`
-        },
-        body: JSON.stringify({
-          query: `query($id: ID!) {
-            builds(filter: { id: $id }, limit: 1) {
-              id status platform artifacts { buildUrl url }
-              app { name }
-            }
-          }`,
-          variables: { id: expoBuildId }
-        })
-      });
-      const json = await res.json();
-      const b = json?.data?.builds?.[0];
-      if (!b) {
-        // Fallback: REST-style attempt
-        appendLog(buildId, 'Waiting for Expo build…');
-      } else {
-        appendLog(buildId, `Expo status: ${b.status}`);
-        if (b.status === 'FINISHED' || b.status === 'finished') {
-          const url = b.artifacts?.buildUrl || b.artifacts?.url || null;
-          return { status: 'success', url, raw: b };
-        }
-        if (b.status === 'ERRORED' || b.status === 'errored' || b.status === 'CANCELED') {
-          return { status: 'failed', url: null, raw: b };
-        }
-      }
+      const { stdout } = await execAsync(
+        `npx --yes eas-cli@latest build:view ${expoBuildId} --json --non-interactive`,
+        { env: { ...process.env, EXPO_TOKEN: expoToken }, maxBuffer: 1024 * 1024 * 20 }
+      );
+      const match = stdout.match(/\{[\s\S]*\}/);
+      return match ? JSON.parse(match[0]) : null;
     } catch (e) {
-      appendLog(buildId, 'Poll error: ' + e.message);
+      appendLog(buildId, 'build:view failed: ' + (e.message || String(e)).slice(0, 160));
+      return null;
     }
+  }
+
+  while (Date.now() < deadline) {
+    let b = null;
+
+    if (!graphqlBroken) {
+      try {
+        const res = await fetch('https://api.expo.dev/graphql', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${expoToken}`
+          },
+          body: JSON.stringify({
+            query: `query($id: ID!) {
+              builds {
+                byId(buildId: $id) {
+                  id
+                  status
+                  platform
+                  artifacts { buildUrl applicationArchiveUrl }
+                  app { name }
+                }
+              }
+            }`,
+            variables: { id: expoBuildId }
+          })
+        });
+        const json = await res.json();
+        if (json?.errors?.length) {
+          appendLog(
+            buildId,
+            'Expo GraphQL error: ' + String(json.errors[0].message || '').slice(0, 200)
+          );
+          graphqlBroken = true;
+          appendLog(buildId, 'Falling back to eas-cli build:view for status.');
+        }
+        b = json?.data?.builds?.byId || null;
+      } catch (e) {
+        appendLog(buildId, 'Poll error: ' + (e.message || String(e)).slice(0, 120));
+      }
+    }
+
+    if (!b) b = await viaCli();
+
+    if (!b) {
+      appendLog(buildId, 'Waiting for Expo build…');
+    } else {
+      const status = String(b.status || '').toUpperCase();
+      if (status !== lastStatus) {
+        appendLog(buildId, `Expo status: ${status}`);
+        lastStatus = status;
+      }
+      if (status === 'FINISHED') {
+        const url = pickUrl(b);
+        if (!url) appendLog(buildId, 'Build finished but no artifact URL was returned.');
+        return { status: 'success', url, raw: b };
+      }
+      if (status === 'ERRORED' || status === 'CANCELED') {
+        return { status: 'failed', url: null, raw: b };
+      }
+    }
+
     await sleep(20000);
   }
+  appendLog(buildId, `Stopped polling after ${maxMinutes} min — check the Expo build page.`);
   return { status: 'timeout', url: null };
 }
 
@@ -501,6 +616,89 @@ function findLocalBinaries(dir) {
   }
   walk(dir);
   return found;
+}
+
+/**
+ * Local Gradle path: expo prebuild → write local.properties → assemble/bundleRelease.
+ * Hardened for low-RAM (Codespaces): --no-daemon, capped JVM heap, NODE_ENV=production.
+ */
+async function runLocalGradleBuild(buildId, buildDir, profile) {
+  appendLog(buildId, 'Using expo prebuild + Gradle…');
+  await runCmd(buildId, 'npx --yes expo prebuild --platform android --no-install', buildDir, {
+    EAS_NO_VCS: '1',
+    CI: '1',
+    NODE_ENV: 'production'
+  });
+
+  const androidDir = path.join(buildDir, 'android');
+  if (!fs.existsSync(androidDir)) {
+    throw new Error('android/ folder missing after prebuild');
+  }
+
+  const gradlew = path.join(androidDir, 'gradlew');
+  if (fs.existsSync(gradlew)) {
+    try { fs.chmodSync(gradlew, 0o755); } catch (_) {}
+  }
+
+  const androidHome = findAndroidSdkHome();
+  if (androidHome && fs.existsSync(androidHome)) {
+    fs.writeFileSync(
+      path.join(androidDir, 'local.properties'),
+      `sdk.dir=${androidHome.replace(/\\/g, '/')}\n`
+    );
+    appendLog(buildId, `Using Android SDK at ${androidHome}.`);
+  } else {
+    appendLog(buildId, '❌ No Android SDK found (ANDROID_HOME/ANDROID_SDK_ROOT not set or path missing). Run setup-android-sdk.sh once, then retry.');
+    throw new Error('Android SDK not configured (ANDROID_HOME/ANDROID_SDK_ROOT missing).');
+  }
+
+  // Cap Gradle memory + disable daemon — prevents "daemon disappeared" OOM on Codespaces.
+  const gradlePropsPath = path.join(androidDir, 'gradle.properties');
+  let gradleProps = '';
+  try {
+    if (fs.existsSync(gradlePropsPath)) gradleProps = fs.readFileSync(gradlePropsPath, 'utf8');
+  } catch (_) {}
+  if (!gradleProps.includes('org.gradle.daemon=false')) {
+    fs.writeFileSync(
+      gradlePropsPath,
+      gradleProps.trimEnd() +
+        '\n\n# Dolphine local-build (low-RAM safe)\n' +
+        'org.gradle.daemon=false\n' +
+        'org.gradle.jvmargs=-Xmx1536m -XX:MaxMetaspaceSize=384m -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8\n' +
+        'org.gradle.parallel=false\n' +
+        'org.gradle.workers.max=1\n' +
+        // org.gradle.daemon=false only kills the *main* Gradle daemon. The Kotlin
+        // compiler and R8/dex still spawn their own separate JVMs by default,
+        // which is what actually gets OOM-killed on low-RAM machines (Gradle then
+        // misreports it as "daemon disappeared"). Forcing Kotlin in-process avoids
+        // spawning that extra JVM.
+        'kotlin.compiler.execution.strategy=in-process\n' +
+        'kotlin.incremental=false\n'
+    );
+    appendLog(buildId, 'Wrote low-RAM Gradle settings (no-daemon, 1.5g heap).');
+  }
+
+  const gradleCmd = profile === 'production'
+    ? './gradlew app:bundleRelease --no-daemon --stacktrace'
+    : './gradlew app:assembleRelease --no-daemon --stacktrace';
+
+  const javaHome = findCompatibleJavaHome();
+  const gradleEnv = {
+    ANDROID_HOME: androidHome,
+    ANDROID_SDK_ROOT: androidHome,
+    NODE_ENV: 'production',
+    GRADLE_OPTS: '-Dorg.gradle.daemon=false'
+  };
+  if (javaHome) {
+    appendLog(buildId, `Using JDK at ${javaHome} for Gradle (avoids "Unsupported class file" errors on newer default JDKs).`);
+    gradleEnv.JAVA_HOME = javaHome;
+    gradleEnv.PATH = `${javaHome}/bin:${androidHome}/platform-tools:${process.env.PATH || ''}`;
+  } else {
+    appendLog(buildId, '⚠️ No JDK 17/11/21 found under /usr/lib/jvm — using system default Java. If the build fails with "Unsupported class file major version", install JDK 17 (setup-jdk17.sh) and re-run.');
+  }
+
+  appendLog(buildId, `Running ${gradleCmd}…`);
+  await runCmd(buildId, gradleCmd, androidDir, gradleEnv);
 }
 
 // Background build runner (survives page leave)
@@ -530,8 +728,13 @@ async function runBuildPipeline(buildId) {
     zip.addLocalFolder(buildDir);
     zip.writeZip(zipPath);
 
-    const ghToken = process.env.GITHUB_TOKEN;
-    const ghRepo = (process.env.GITHUB_REPO || '').replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '').trim();
+    const ghToken = (process.env.GITHUB_TOKEN || '').trim();
+    // GITHUB_REPO must be "owner/repo" — never put the token here (common misconfig).
+    let ghRepo = (process.env.GITHUB_REPO || '').replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '').trim();
+    if (ghRepo.startsWith('ghp_') || ghRepo.startsWith('github_pat_') || ghRepo.includes('@')) {
+      appendLog(buildId, '⚠️ GITHUB_REPO looks like a token — ignoring. Set GITHUB_REPO=owner/repo (e.g. webever_studio/my-app).');
+      ghRepo = '';
+    }
     const expoToken = process.env.EXPO_TOKEN;
     const platform = build.platform || 'android';
     const profile = build.profile || 'preview';
@@ -555,37 +758,53 @@ async function runBuildPipeline(buildId) {
         appendLog(buildId, 'Installing npm dependencies…');
         await runCmd(buildId, 'npm install --no-audit --no-fund', buildDir);
 
-        // Prefer EAS local if token available; otherwise try expo run:android / gradle after prebuild
-        if (expoToken) {
-          appendLog(buildId, 'EXPO_TOKEN found — using EAS local build…');
-          const easLocal = `npx --yes eas-cli@latest build --platform android --profile ${profile} --local --non-interactive`;
-          await runCmd(buildId, easLocal, buildDir, {
-            EXPO_TOKEN: expoToken,
-            EAS_NO_VCS: '1'
-          });
+        let usedGradleFallback = false;
+
+        // EAS --local often breaks on nested paths (data/builds/<id>) with
+        // "package.json does not exist". Default to Gradle; set PREFER_GRADLE_LOCAL=0 to try EAS local.
+        const preferGradle = process.env.PREFER_GRADLE_LOCAL !== '0';
+        if (expoToken && !preferGradle) {
+          appendLog(buildId, 'EXPO_TOKEN found — trying EAS local build…');
+          try {
+            const easAccount = (process.env.EAS_ACCOUNT || process.env.EXPO_ACCOUNT || '').trim();
+            try {
+              appendLog(buildId, 'Ensuring EAS project is configured (eas init)…');
+              const initCmd = easAccount
+                ? `npx --yes eas-cli@latest init --account ${easAccount} --non-interactive`
+                : 'npx --yes eas-cli@latest init --non-interactive';
+              await runCmd(buildId, initCmd, buildDir, {
+                EXPO_TOKEN: expoToken,
+                EAS_NO_VCS: '1',
+                EAS_PROJECT_ROOT: buildDir
+              });
+            } catch (initErr) {
+              appendLog(buildId, 'eas init note: ' + (initErr.message || String(initErr)).slice(0, 200));
+              if (!easAccount) {
+                appendLog(buildId, 'Tip: set EAS_ACCOUNT=webever_studio (or www.eazywok.com) in .env for multi-account tokens.');
+              }
+              appendLog(buildId, 'Continuing — project may already be linked.');
+            }
+
+            const easLocal = `npx --yes eas-cli@latest build --platform android --profile ${profile} --local --non-interactive`;
+            await runCmd(buildId, easLocal, buildDir, {
+              EXPO_TOKEN: expoToken,
+              EAS_NO_VCS: '1',
+              EAS_PROJECT_ROOT: buildDir
+            });
+          } catch (easErr) {
+            appendLog(buildId, 'EAS local build failed: ' + (easErr.message || String(easErr)).slice(0, 300));
+            appendLog(buildId, 'Falling back to expo prebuild + Gradle…');
+            usedGradleFallback = true;
+            await runLocalGradleBuild(buildId, buildDir, profile);
+          }
         } else {
-          appendLog(buildId, 'No EXPO_TOKEN — using expo prebuild + Gradle…');
-          await runCmd(buildId, 'npx --yes expo prebuild --platform android --no-install', buildDir, {
-            EAS_NO_VCS: '1',
-            CI: '1'
-          });
-
-          const androidDir = path.join(buildDir, 'android');
-          if (!fs.existsSync(androidDir)) {
-            throw new Error('android/ folder missing after prebuild');
+          if (expoToken) {
+            appendLog(buildId, 'Skipping EAS local (nested path / low RAM) — using expo prebuild + Gradle…');
+          } else {
+            appendLog(buildId, 'No EXPO_TOKEN — using expo prebuild + Gradle…');
           }
-
-          // Make gradlew executable
-          const gradlew = path.join(androidDir, 'gradlew');
-          if (fs.existsSync(gradlew)) {
-            try { fs.chmodSync(gradlew, 0o755); } catch (_) {}
-          }
-
-          const gradleCmd = profile === 'production'
-            ? './gradlew app:bundleRelease'
-            : './gradlew app:assembleRelease';
-          appendLog(buildId, `Running ${gradleCmd}…`);
-          await runCmd(buildId, gradleCmd, androidDir);
+          usedGradleFallback = true;
+          await runLocalGradleBuild(buildId, buildDir, profile);
         }
 
         const binaries = findLocalBinaries(buildDir);
@@ -599,7 +818,9 @@ async function runBuildPipeline(buildId) {
           }
           updateBuild(buildId, {
             status: 'success',
-            message: 'Local Android build finished — download APK/AAB below.',
+            message: usedGradleFallback
+              ? 'Local Gradle build finished — download APK/AAB below.'
+              : 'Local EAS build finished — download APK/AAB below.',
             artifacts
           });
           appendLog(buildId, '✅ Local build complete.');
@@ -615,7 +836,7 @@ async function runBuildPipeline(buildId) {
         return;
       } catch (e) {
         appendLog(buildId, 'Local build error: ' + (e.message || String(e)).slice(0, 400));
-        appendLog(buildId, 'Tip: install Android Studio / set ANDROID_HOME, or use Cloud mode.');
+        appendLog(buildId, 'Tip: install Android Studio / set ANDROID_HOME (or run setup-android-sdk.sh), install JDK 17 (setup-jdk17.sh), or use Cloud mode.');
         updateBuild(buildId, {
           status: 'failed',
           message: 'Local build failed: ' + (e.message || '').slice(0, 120),
@@ -634,11 +855,40 @@ async function runBuildPipeline(buildId) {
         appendLog(buildId, 'Installing dependencies…');
         await runCmd(buildId, 'npm install --no-audit --no-fund', buildDir);
 
+        // With EAS_NO_VCS=1, EAS CLI still falls back to the nearest .gitignore
+        // for the upload archive when no .easignore is present. Since buildDir
+        // lives under data/builds/<id> — likely excluded by the server repo's
+        // own .gitignore — that fallback can silently drop package.json (and
+        // everything else) from the uploaded tarball, causing the EAS worker
+        // to report "package.json does not exist". Writing an explicit
+        // .easignore here bypasses that fallback entirely.
+        fs.writeFileSync(path.join(buildDir, '.easignore'), 'node_modules\n.git\n');
+
+        // Non-interactive EAS requires the project to be linked. Multi-account tokens need --account.
+        const easAccount = (process.env.EAS_ACCOUNT || process.env.EXPO_ACCOUNT || '').trim();
+        try {
+          appendLog(buildId, 'Ensuring EAS project is configured (eas init)…');
+          const initCmd = easAccount
+            ? `npx --yes eas-cli@latest init --account ${easAccount} --non-interactive`
+            : 'npx --yes eas-cli@latest init --non-interactive';
+          await runCmd(buildId, initCmd, buildDir, {
+            EXPO_TOKEN: expoToken,
+            EAS_NO_VCS: '1',
+            EAS_PROJECT_ROOT: buildDir
+          });
+        } catch (initErr) {
+          appendLog(buildId, 'eas init note: ' + (initErr.message || String(initErr)).slice(0, 200));
+          if (!easAccount) {
+            appendLog(buildId, 'Tip: set EAS_ACCOUNT=webever_studio (or www.eazywok.com) in .env for multi-account tokens.');
+          }
+        }
+
         appendLog(buildId, `Running: eas build -p ${platform} --profile ${profile}`);
         const easCmd = `npx --yes eas-cli@latest build --platform ${platform === 'all' ? 'all' : platform} --profile ${profile} --non-interactive --no-wait --json`;
         const { stdout } = await runCmd(buildId, easCmd, buildDir, {
           EXPO_TOKEN: expoToken,
-          EAS_NO_VCS: '1'
+          EAS_NO_VCS: '1',
+          EAS_PROJECT_ROOT: buildDir
         });
 
         let expoBuildId = null;
@@ -823,6 +1073,31 @@ app.get('/api/builds/:id', auth, (req, res) => {
   res.json(build);
 });
 
+app.delete('/api/builds/:id', auth, (req, res) => {
+  const db = loadDB();
+  const idx = db.builds.findIndex(b => b.id === req.params.id && b.userId === req.user.id);
+  if (idx === -1) return res.status(404).json({ error: 'Build not found' });
+  const build = db.builds[idx];
+
+  // Clean up any artifact files on disk (binaries copied into BUILDS_DIR,
+  // the working build dir, and any generated project-zip bundle).
+  try {
+    (build.artifacts || []).forEach(a => {
+      if (a.path && fs.existsSync(a.path)) fs.rmSync(a.path, { force: true });
+    });
+    const buildDir = path.join(BUILDS_DIR, build.id);
+    if (fs.existsSync(buildDir)) fs.rmSync(buildDir, { recursive: true, force: true });
+    const zipPath = path.join(BUILDS_DIR, `${build.id}-bundle.zip`);
+    if (fs.existsSync(zipPath)) fs.rmSync(zipPath, { force: true });
+  } catch (e) {
+    console.error('Build cleanup error:', e);
+  }
+
+  db.builds.splice(idx, 1);
+  saveDB(db);
+  res.json({ ok: true });
+});
+
 // Realtime-ish logs
 app.get('/api/builds/:id/logs', auth, (req, res) => {
   const db = loadDB();
@@ -879,11 +1154,12 @@ async function generateExpoProject(targetDir, project, sourceDir) {
   const packageName = (cfg.android && cfg.android.package) || `com.dolphine.${project.id.slice(0, 8)}`;
   const bundleId = (cfg.ios && cfg.ios.bundleIdentifier) || packageName;
 
-  // package.json
+  // package.json — use classic App.js entry (NOT expo-router; we don't install it)
+  // Wrong main: 'expo-router/entry' without the package causes Gradle path='' failures.
   fs.writeFileSync(path.join(targetDir, 'package.json'), JSON.stringify({
     name: slug,
     version: cfg.version || '1.0.0',
-    main: 'expo-router/entry',
+    main: 'node_modules/expo/AppEntry.js',
     scripts: {
       start: 'expo start',
       android: 'expo start --android',
@@ -898,13 +1174,21 @@ async function generateExpoProject(targetDir, project, sourceDir) {
       'react-native-webview': '13.12.5',
       'expo-asset': '~11.0.0',
       'expo-file-system': '~18.0.0',
-      'expo-constants': '~17.0.0'
+      'expo-constants': '~17.0.0',
+      // Pins Kotlin at prebuild time. expo-modules-core 2.2.3 ships Compose
+      // Compiler 1.5.15, which refuses to run on the SDK 52 template's default
+      // Kotlin 1.9.24 (":expo-modules-core:compileReleaseKotlin" fails).
+      'expo-build-properties': '~0.13.0'
     },
     devDependencies: {
       '@babel/core': '^7.25.0'
     },
     private: true
   }, null, 2));
+
+  // Optional EAS account / projectId from env (fixes multi-account non-interactive init)
+  const easAccount = (process.env.EAS_ACCOUNT || process.env.EXPO_ACCOUNT || '').trim();
+  const easProjectId = (process.env.EAS_PROJECT_ID || '').trim();
 
   // app.json
   const appJson = {
@@ -938,8 +1222,21 @@ async function generateExpoProject(targetDir, project, sourceDir) {
         bundler: 'metro',
         favicon: './assets/favicon.png'
       },
-      extra: cfg.extra || {},
-      plugins: []
+      // owner + projectId make non-interactive EAS work with multi-account tokens
+      ...(easAccount ? { owner: easAccount } : {}),
+      extra: {
+        ...(cfg.extra || {}),
+        ...(easProjectId ? { eas: { projectId: easProjectId } } : {})
+      },
+      // Travels with the project, so it applies to EAS cloud builds and local
+      // prebuild + Gradle alike. 1.9.25 is binary-compatible with 1.9.24.
+      plugins: [
+        ['expo-build-properties', {
+          android: {
+            kotlinVersion: '1.9.25'
+          }
+        }]
+      ]
     }
   };
   fs.writeFileSync(path.join(targetDir, 'app.json'), JSON.stringify(appJson, null, 2));
@@ -1040,23 +1337,22 @@ jobs:
   fs.mkdirSync(wwwDir, { recursive: true });
   copyDir(sourceDir, wwwDir);
 
-  // App entry (App.js) – WebView loading local assets
+  // App entry (App.js) – WebView loading local assets.
+  // registerRootComponent is required when main points at expo/AppEntry.js.
   fs.writeFileSync(path.join(targetDir, 'App.js'), `import React from 'react';
-import { StyleSheet, View, StatusBar, Platform } from 'react-native';
+import { StyleSheet, View, StatusBar } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { Asset } from 'expo-asset';
-import * as FileSystem from 'expo-file-system';
+import { registerRootComponent } from 'expo';
 
-export default function App() {
+function App() {
   const [uri, setUri] = React.useState(null);
 
   React.useEffect(() => {
     (async () => {
       try {
-        // Load bundled index.html
         const asset = Asset.fromModule(require('./assets/www/index.html'));
         await asset.downloadAsync();
-        // For file:// we need the local URI
         setUri(asset.localUri || asset.uri);
       } catch (e) {
         console.warn('Asset load failed, falling back', e);
@@ -1065,7 +1361,6 @@ export default function App() {
     })();
   }, []);
 
-  // Fallback: inject HTML string if asset loading is tricky on some platforms
   const htmlFallback = \`
 <!DOCTYPE html>
 <html>
@@ -1105,6 +1400,8 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0f172a' },
   webview: { flex: 1 }
 });
+
+registerRootComponent(App);
 `);
 
   // babel.config.js
@@ -1114,6 +1411,13 @@ const styles = StyleSheet.create({
     presets: ['babel-preset-expo'],
   };
 };
+`);
+
+  // metro.config.js — allow bundling .html from assets/www
+  fs.writeFileSync(path.join(targetDir, 'metro.config.js'), `const { getDefaultConfig } = require('expo/metro-config');
+const config = getDefaultConfig(__dirname);
+config.resolver.assetExts.push('html');
+module.exports = config;
 `);
 
   // README for the generated project
