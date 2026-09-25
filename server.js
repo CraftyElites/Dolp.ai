@@ -630,6 +630,19 @@ async function runLocalGradleBuild(buildId, buildDir, profile) {
     NODE_ENV: 'production'
   });
 
+  // Copy www into Android assets so file:///android_asset/www works as a fallback path
+  try {
+    const srcWww = path.join(buildDir, 'assets', 'www');
+    const destWww = path.join(buildDir, 'android', 'app', 'src', 'main', 'assets', 'www');
+    if (fs.existsSync(srcWww)) {
+      fs.mkdirSync(path.dirname(destWww), { recursive: true });
+      copyDir(srcWww, destWww);
+      appendLog(buildId, 'Copied www → android/app/src/main/assets/www');
+    }
+  } catch (copyErr) {
+    appendLog(buildId, 'www→android assets copy note: ' + (copyErr.message || '').slice(0, 120));
+  }
+
   const androidDir = path.join(buildDir, 'android');
   if (!fs.existsSync(androidDir)) {
     throw new Error('android/ folder missing after prebuild');
@@ -821,7 +834,9 @@ async function runBuildPipeline(buildId) {
             message: usedGradleFallback
               ? 'Local Gradle build finished — download APK/AAB below.'
               : 'Local EAS build finished — download APK/AAB below.',
-            artifacts
+            artifacts,
+            hasApk: true,
+            binaryName: path.basename(binaries[0])
           });
           appendLog(buildId, '✅ Local build complete.');
           return;
@@ -1112,38 +1127,134 @@ app.get('/api/builds/:id/logs', auth, (req, res) => {
   });
 });
 
-// Download Expo project bundle
+// Download APK/AAB (preferred) or Expo project ZIP
 app.get('/api/builds/:id/download', auth, (req, res) => {
   const db = loadDB();
   const build = db.builds.find(b => b.id === req.params.id && b.userId === req.user.id);
   if (!build) return res.status(404).json({ error: 'Build not found' });
 
-  // Prefer real APK/AAB if local build produced one
-  const binaryArt = (build.artifacts || []).find(a => a.type === 'app-binary' && a.path && fs.existsSync(a.path));
-  if (binaryArt) {
-    return res.download(binaryArt.path, binaryArt.name || path.basename(binaryArt.path));
+  const forceZip = String(req.query.zip || '') === '1' || String(req.query.type || '') === 'zip';
+
+  function sendBinary(filePath, name) {
+    if (!filePath || !fs.existsSync(filePath)) return false;
+    const fname = name || path.basename(filePath);
+    const lower = fname.toLowerCase();
+    const ctype = lower.endsWith('.aab')
+      ? 'application/octet-stream'
+      : lower.endsWith('.apk')
+        ? 'application/vnd.android.package-archive'
+        : 'application/octet-stream';
+    res.setHeader('Content-Type', ctype);
+    res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
+    res.setHeader('Cache-Control', 'no-store');
+    res.sendFile(path.resolve(filePath), (err) => {
+      if (err && !res.headersSent) {
+        console.error('sendFile error', err);
+        res.status(500).json({ error: 'Failed to stream binary' });
+      }
+    });
+    return true;
   }
 
-  // Redirect to remote binary URL if cloud build finished
-  if (build.binaryUrl) {
-    return res.redirect(build.binaryUrl);
-  }
-  const remoteBinary = (build.artifacts || []).find(a => a.type === 'app-binary' && a.url);
-  if (remoteBinary) {
-    return res.redirect(remoteBinary.url);
+  if (!forceZip) {
+    // 1) Artifact with valid path
+    const binaryArt = (build.artifacts || []).find(
+      a => a.type === 'app-binary' && a.path && fs.existsSync(a.path)
+    );
+    if (binaryArt && sendBinary(binaryArt.path, binaryArt.name)) return;
+
+    // 2) Disk scan: <buildId>-*.apk / *.aab in BUILDS_DIR (survives artifact path drift)
+    try {
+      const files = fs.readdirSync(BUILDS_DIR);
+      const match = files.find(f =>
+        f.startsWith(build.id) && /\.(apk|aab)$/i.test(f)
+      );
+      if (match) {
+        const full = path.join(BUILDS_DIR, match);
+        if (sendBinary(full, match.replace(build.id + '-', ''))) return;
+      }
+    } catch (_) {}
+
+    // 3) Inside build working dir
+    try {
+      const found = findLocalBinaries(path.join(BUILDS_DIR, build.id));
+      if (found.length) {
+        const bin = found[0];
+        if (sendBinary(bin, path.basename(bin))) return;
+      }
+    } catch (_) {}
+
+    // 4) Remote cloud URL
+    if (build.binaryUrl) {
+      return res.redirect(build.binaryUrl);
+    }
+    const remoteBinary = (build.artifacts || []).find(a => a.type === 'app-binary' && a.url);
+    if (remoteBinary) {
+      return res.redirect(remoteBinary.url);
+    }
   }
 
   // Fallback: Expo project ZIP
   const zipPath = path.join(BUILDS_DIR, `${build.id}-bundle.zip`);
   if (!fs.existsSync(zipPath)) {
     const buildDir = path.join(BUILDS_DIR, build.id);
-    if (!fs.existsSync(buildDir)) return res.status(404).json({ error: 'Build artifacts not found' });
+    if (!fs.existsSync(buildDir)) return res.status(404).json({ error: 'No APK/AAB or build folder found. Re-run the build.' });
     const zip = new AdmZip();
     zip.addLocalFolder(buildDir);
     zip.writeZip(zipPath);
   }
 
-  res.download(zipPath, `dolphine-${build.id.slice(0, 8)}-expo.zip`);
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', `attachment; filename="dolphine-${build.id.slice(0, 8)}-expo.zip"`);
+  res.sendFile(path.resolve(zipPath));
+});
+
+// Explicit APK-only endpoint (UI uses this for the primary download button)
+app.get('/api/builds/:id/apk', auth, (req, res) => {
+  req.url = `/api/builds/${req.params.id}/download`;
+  // Re-use download logic via internal redirect of query
+  const db = loadDB();
+  const build = db.builds.find(b => b.id === req.params.id && b.userId === req.user.id);
+  if (!build) return res.status(404).json({ error: 'Build not found' });
+
+  const trySend = (filePath, name) => {
+    if (!filePath || !fs.existsSync(filePath)) return false;
+    const fname = name || path.basename(filePath);
+    const lower = fname.toLowerCase();
+    if (!/\.(apk|aab)$/i.test(lower)) return false;
+    res.setHeader(
+      'Content-Type',
+      lower.endsWith('.aab') ? 'application/octet-stream' : 'application/vnd.android.package-archive'
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
+    res.setHeader('Cache-Control', 'no-store');
+    res.sendFile(path.resolve(filePath));
+    return true;
+  };
+
+  const binaryArt = (build.artifacts || []).find(
+    a => a.type === 'app-binary' && a.path && fs.existsSync(a.path)
+  );
+  if (binaryArt && trySend(binaryArt.path, binaryArt.name)) return;
+
+  try {
+    const files = fs.readdirSync(BUILDS_DIR);
+    const match = files.find(f => f.startsWith(build.id) && /\.(apk|aab)$/i.test(f));
+    if (match && trySend(path.join(BUILDS_DIR, match), match.replace(build.id + '-', ''))) return;
+  } catch (_) {}
+
+  try {
+    const found = findLocalBinaries(path.join(BUILDS_DIR, build.id));
+    if (found.length && trySend(found[0], path.basename(found[0]))) return;
+  } catch (_) {}
+
+  if (build.binaryUrl) return res.redirect(build.binaryUrl);
+  const remote = (build.artifacts || []).find(a => a.type === 'app-binary' && a.url);
+  if (remote) return res.redirect(remote.url);
+
+  return res.status(404).json({
+    error: 'APK/AAB not found on server. Re-run a Local build, or open the Expo link for a Cloud build.'
+  });
 });
 
 // ---------- Generate Expo project ----------
@@ -1175,9 +1286,8 @@ async function generateExpoProject(targetDir, project, sourceDir) {
       'expo-asset': '~11.0.0',
       'expo-file-system': '~18.0.0',
       'expo-constants': '~17.0.0',
-      // Pins Kotlin at prebuild time. expo-modules-core 2.2.3 ships Compose
-      // Compiler 1.5.15, which refuses to run on the SDK 52 template's default
-      // Kotlin 1.9.24 (":expo-modules-core:compileReleaseKotlin" fails).
+      jszip: '^3.10.1',
+      '@expo/config-plugins': '~9.0.0',
       'expo-build-properties': '~0.13.0'
     },
     devDependencies: {
@@ -1332,76 +1442,367 @@ jobs:
     [iconDest, splashDest, adaptiveDest, faviconDest].forEach(p => fs.writeFileSync(p, png));
   }
 
-  // Copy all project files into assets/www
+  // Copy project files into assets/www + pack www.zip for runtime unpack fallback
   const wwwDir = path.join(targetDir, 'assets', 'www');
   fs.mkdirSync(wwwDir, { recursive: true });
   copyDir(sourceDir, wwwDir);
 
-  // App entry (App.js) – WebView loading local assets.
-  // registerRootComponent is required when main points at expo/AppEntry.js.
-  fs.writeFileSync(path.join(targetDir, 'App.js'), `import React from 'react';
-import { StyleSheet, View, StatusBar } from 'react-native';
+  const wwwZipPath = path.join(targetDir, 'assets', 'www.zip');
+  try {
+    const wwwZip = new AdmZip();
+    wwwZip.addLocalFolder(wwwDir);
+    wwwZip.writeZip(wwwZipPath);
+  } catch (zipErr) {
+    console.warn('www.zip pack failed', zipErr.message);
+  }
+
+  // Expo config plugin: copy www → android assets on every prebuild (local + EAS cloud)
+  const pluginsDir = path.join(targetDir, 'plugins');
+  fs.mkdirSync(pluginsDir, { recursive: true });
+  fs.writeFileSync(path.join(pluginsDir, 'withWwwAssets.js'), `const {
+  withDangerousMod,
+  createRunOncePlugin
+} = require('@expo/config-plugins');
+const fs = require('fs');
+const path = require('path');
+
+function copyRecursive(src, dest) {
+  if (!fs.existsSync(src)) return;
+  fs.mkdirSync(dest, { recursive: true });
+  for (const name of fs.readdirSync(src)) {
+    const s = path.join(src, name);
+    const d = path.join(dest, name);
+    if (fs.statSync(s).isDirectory()) copyRecursive(s, d);
+    else fs.copyFileSync(s, d);
+  }
+}
+
+const withWwwAssets = (config) => {
+  return withDangerousMod(config, [
+    'android',
+    async (cfg) => {
+      const projectRoot = cfg.modRequest.projectRoot;
+      const platformRoot = cfg.modRequest.platformProjectRoot;
+      const src = path.join(projectRoot, 'assets', 'www');
+      const dest = path.join(platformRoot, 'app', 'src', 'main', 'assets', 'www');
+      if (fs.existsSync(src)) {
+        copyRecursive(src, dest);
+      }
+      return cfg;
+    }
+  ]);
+};
+
+module.exports = createRunOncePlugin(withWwwAssets, 'with-dolphine-www', '1.0.0');
+`);
+
+  // Ensure plugin is registered in app.json we already wrote — patch it
+  try {
+    const appJsonPath = path.join(targetDir, 'app.json');
+    const appJson = JSON.parse(fs.readFileSync(appJsonPath, 'utf8'));
+    const plugins = appJson.expo.plugins || [];
+    if (!plugins.some(p => (Array.isArray(p) ? p[0] : p) === './plugins/withWwwAssets')) {
+      plugins.push('./plugins/withWwwAssets');
+    }
+    appJson.expo.plugins = plugins;
+    // Keep splash visible longer feeling: background matches boot screen
+    if (!appJson.expo.splash) appJson.expo.splash = {};
+    appJson.expo.splash.image = './assets/splash.png';
+    appJson.expo.splash.resizeMode = (cfg.splash && cfg.splash.resizeMode) || 'contain';
+    appJson.expo.splash.backgroundColor = (cfg.splash && cfg.splash.backgroundColor) || '#0f172a';
+    fs.writeFileSync(appJsonPath, JSON.stringify(appJson, null, 2));
+  } catch (_) {}
+
+  // App.js — splash screen, android_asset primary, JSZip base64 fallback, ErrorBoundary
+  const splashBg = (cfg.splash && cfg.splash.backgroundColor) || '#0f172a';
+  fs.writeFileSync(path.join(targetDir, 'App.js'), `import React, { Component } from 'react';
+import {
+  StyleSheet,
+  View,
+  StatusBar,
+  Text,
+  Platform,
+  Image,
+  Dimensions
+} from 'react-native';
 import { WebView } from 'react-native-webview';
 import { Asset } from 'expo-asset';
+import * as FileSystem from 'expo-file-system';
 import { registerRootComponent } from 'expo';
+import JSZip from 'jszip';
 
-function App() {
+const SPLASH_BG = '${splashBg}';
+const ANDROID_ASSET_URI = 'file:///android_asset/www/index.html';
+
+const FALLBACK_HTML = \`<!DOCTYPE html>
+<html><head>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<style>
+  body{margin:0;font-family:system-ui,-apple-system,sans-serif;background:${splashBg};color:#f1f5f9;
+       display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center;padding:24px}
+  h1{font-size:1.4rem;margin-bottom:8px} p{opacity:.8;line-height:1.55;max-width:320px;margin:0 auto 8px}
+  code{background:#1e293b;padding:2px 6px;border-radius:4px;font-size:0.85em}
+</style></head><body>
+<div>
+  <h1>Could not load content</h1>
+  <p>Re-upload <code>index.html</code> at the project root and build again.</p>
+</div>
+</body></html>\`;
+
+class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { error: error && error.message ? error.message : String(error) };
+  }
+  componentDidCatch(error, info) {
+    console.warn('App ErrorBoundary', error, info);
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <View style={styles.boot}>
+          <StatusBar barStyle="light-content" backgroundColor={SPLASH_BG} />
+          <Image source={require('./assets/splash.png')} style={styles.splashLogo} resizeMode="contain" />
+          <Text style={styles.bootTitle}>Something went wrong</Text>
+          <Text style={styles.bootText}>{this.state.error}</Text>
+        </View>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+async function unpackWwwFromZip() {
+  const root = FileSystem.documentDirectory + 'dolphine-www/';
+  const marker = root + '.ready';
+  // Reuse previous unpack if present (faster subsequent launches)
+  try {
+    const m = await FileSystem.getInfoAsync(marker);
+    const idx = await FileSystem.getInfoAsync(root + 'index.html');
+    if (m.exists && idx.exists) {
+      const p = root + 'index.html';
+      return p.startsWith('file://') ? p : 'file://' + p;
+    }
+  } catch (_) {}
+
+  try {
+    const info = await FileSystem.getInfoAsync(root);
+    if (info.exists) await FileSystem.deleteAsync(root, { idempotent: true });
+  } catch (_) {}
+  await FileSystem.makeDirectoryAsync(root, { intermediates: true });
+
+  const asset = Asset.fromModule(require('./assets/www.zip'));
+  await asset.downloadAsync();
+  const uri = asset.localUri || asset.uri;
+  if (!uri) throw new Error('www.zip asset missing from bundle');
+
+  // Load zip as base64 — Hermes-safe (no binary string)
+  const b64 = await FileSystem.readAsStringAsync(uri, {
+    encoding: FileSystem.EncodingType.Base64
+  });
+  const zip = await JSZip.loadAsync(b64, { base64: true });
+  const names = Object.keys(zip.files);
+  for (const name of names) {
+    const entry = zip.files[name];
+    if (!entry || entry.dir) continue;
+    const rel = String(name).replace(/^[/\\\\]+/, '').replace(/\\\\/g, '/');
+    if (!rel || rel.includes('..')) continue;
+    const dest = root + rel;
+    const dir = dest.substring(0, dest.lastIndexOf('/'));
+    if (dir) {
+      try { await FileSystem.makeDirectoryAsync(dir, { intermediates: true }); } catch (_) {}
+    }
+    const content = await entry.async('base64');
+    await FileSystem.writeAsStringAsync(dest, content, {
+      encoding: FileSystem.EncodingType.Base64
+    });
+  }
+
+  const indexPath = root + 'index.html';
+  const indexInfo = await FileSystem.getInfoAsync(indexPath);
+  if (!indexInfo.exists) throw new Error('index.html missing after unpack');
+  try {
+    await FileSystem.writeAsStringAsync(marker, String(Date.now()));
+  } catch (_) {}
+  return indexPath.startsWith('file://') ? indexPath : 'file://' + indexPath;
+}
+
+async function resolveWwwUri() {
+  // 1) Android assets (copied by withWwwAssets plugin / local prebuild) — most reliable
+  if (Platform.OS === 'android') {
+    return ANDROID_ASSET_URI;
+  }
+  // 2) Unpack zip into document directory (iOS + Android fallback)
+  return unpackWwwFromZip();
+}
+
+function Splash() {
+  return (
+    <View style={styles.boot}>
+      <StatusBar barStyle="light-content" backgroundColor={SPLASH_BG} />
+      <Image
+        source={require('./assets/splash.png')}
+        style={styles.splashLogo}
+        resizeMode="contain"
+      />
+      <Text style={styles.bootBrand}>Loading…</Text>
+    </View>
+  );
+}
+
+function AppInner() {
   const [uri, setUri] = React.useState(null);
+  const [error, setError] = React.useState(null);
+  const [ready, setReady] = React.useState(false);
+  const [webLoaded, setWebLoaded] = React.useState(false);
 
   React.useEffect(() => {
+    let cancelled = false;
     (async () => {
       try {
-        const asset = Asset.fromModule(require('./assets/www/index.html'));
-        await asset.downloadAsync();
-        setUri(asset.localUri || asset.uri);
+        // On Android prefer asset path; still try zip unpack if asset fails later
+        let fileUri = null;
+        if (Platform.OS === 'android') {
+          fileUri = ANDROID_ASSET_URI;
+          // Also warm-up unpack in background as silent fallback
+          unpackWwwFromZip().catch(() => {});
+        } else {
+          fileUri = await unpackWwwFromZip();
+        }
+        if (!cancelled) {
+          setUri(fileUri);
+          setReady(true);
+        }
       } catch (e) {
-        console.warn('Asset load failed, falling back', e);
-        setUri(null);
+        console.warn('Dolphine www setup failed', e);
+        if (!cancelled) {
+          // Last resort: try the other strategy
+          try {
+            const alt = Platform.OS === 'android'
+              ? await unpackWwwFromZip()
+              : ANDROID_ASSET_URI;
+            if (!cancelled) {
+              setUri(alt);
+              setReady(true);
+              return;
+            }
+          } catch (e2) {
+            if (!cancelled) {
+              setError(String((e && e.message) || e));
+              setReady(true);
+            }
+          }
+        }
       }
     })();
+    return () => { cancelled = true; };
   }, []);
 
-  const htmlFallback = \`
-<!DOCTYPE html>
-<html>
-<head>
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-  <style>body{margin:0;font-family:system-ui;background:#0f172a;color:#f1f5f9;display:flex;align-items:center;justify-content:center;height:100vh;text-align:center;padding:20px}</style>
-</head>
-<body>
-  <div>
-    <h1>Dolphine</h1>
-    <p>Your HTML content is being prepared.</p>
-    <p>If you see this, ensure index.html is at the root of the project.</p>
-  </div>
-</body>
-</html>\`;
+  if (!ready) {
+    return <Splash />;
+  }
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle="light-content" backgroundColor={SPLASH_BG} />
+      {!webLoaded && <View style={StyleSheet.absoluteFill} pointerEvents="none"><Splash /></View>}
       <WebView
         originWhitelist={['*']}
-        source={uri ? { uri } : { html: htmlFallback }}
-        style={styles.webview}
-        javaScriptEnabled
-        domStorageEnabled
-        allowFileAccess
-        allowUniversalAccessFromFileURLs
+        source={
+          uri
+            ? { uri }
+            : { html: FALLBACK_HTML + (error ? '<p style="color:#f87171">' + error + '</p>' : '') }
+        }
+        style={[styles.webview, !webLoaded && { opacity: 0 }]}
+        javaScriptEnabled={true}
+        domStorageEnabled={true}
+        allowFileAccess={true}
+        allowFileAccessFromFileURLs={true}
+        allowUniversalAccessFromFileURLs={true}
         mixedContentMode="always"
-        startInLoadingState
-        scalesPageToFit
+        startInLoadingState={false}
+        scalesPageToFit={true}
+        setSupportMultipleWindows={false}
+        androidLayerType="hardware"
+        onLoadEnd={() => setWebLoaded(true)}
+        onError={(synEvt) => {
+          const e = synEvt.nativeEvent;
+          console.warn('WebView error', e);
+          // If android_asset failed, fall back to unpacked zip
+          if (uri === ANDROID_ASSET_URI) {
+            unpackWwwFromZip()
+              .then((alt) => {
+                setUri(alt);
+                setWebLoaded(false);
+              })
+              .catch((err) => {
+                setError((e && e.description) || String(err && err.message) || 'WebView failed');
+                setWebLoaded(true);
+              });
+          } else {
+            setError((e && e.description) || 'WebView failed to load');
+            setWebLoaded(true);
+          }
+        }}
+        onHttpError={(synEvt) => {
+          console.warn('WebView HTTP error', synEvt.nativeEvent);
+        }}
       />
     </View>
   );
 }
 
+function App() {
+  return (
+    <ErrorBoundary>
+      <AppInner />
+    </ErrorBoundary>
+  );
+}
+
+export default App;
+
+const { width: W } = Dimensions.get('window');
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f172a' },
-  webview: { flex: 1 }
+  container: { flex: 1, backgroundColor: SPLASH_BG },
+  webview: { flex: 1, backgroundColor: 'transparent' },
+  boot: {
+    flex: 1,
+    backgroundColor: SPLASH_BG,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24
+  },
+  splashLogo: {
+    width: Math.min(W * 0.42, 160),
+    height: Math.min(W * 0.42, 160),
+    marginBottom: 20
+  },
+  bootBrand: {
+    color: '#94a3b8',
+    fontSize: 15,
+    fontWeight: '500',
+    letterSpacing: 0.3
+  },
+  bootTitle: {
+    color: '#f1f5f9',
+    fontSize: 17,
+    fontWeight: '700',
+    marginBottom: 8,
+    textAlign: 'center'
+  },
+  bootText: {
+    color: '#94a3b8',
+    fontSize: 13,
+    textAlign: 'center',
+    lineHeight: 18,
+    maxWidth: 280
+  }
 });
 
-registerRootComponent(App);
 `);
 
   // babel.config.js
@@ -1413,10 +1814,12 @@ registerRootComponent(App);
 };
 `);
 
-  // metro.config.js — allow bundling .html from assets/www
+  // metro.config.js — zip is an asset; html kept for optional direct requires
   fs.writeFileSync(path.join(targetDir, 'metro.config.js'), `const { getDefaultConfig } = require('expo/metro-config');
 const config = getDefaultConfig(__dirname);
-config.resolver.assetExts.push('html');
+for (const ext of ['zip', 'html', 'htm']) {
+  if (!config.resolver.assetExts.includes(ext)) config.resolver.assetExts.push(ext);
+}
 module.exports = config;
 `);
 

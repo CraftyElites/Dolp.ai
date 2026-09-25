@@ -3,28 +3,43 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-  <meta name="theme-color" content="#0f172a" />
+  <meta name="theme-color" content="#0a0e17" />
   <title>Dolphine – HTML to APK / AAB / IPA</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <script src="https://unpkg.com/lucide@latest"></script>
   <style>
     :root {
-      --bg: #0b1220;
+      --bg: #070b12;
+      --bg-elevated: #0c1220;
       --surface: #111827;
-      --surface2: #1e293b;
-      --border: #334155;
+      --surface2: #1a2332;
+      --surface3: #243044;
+      --border: #2a3548;
+      --border-subtle: #1e293b;
       --text: #f1f5f9;
+      --text-secondary: #cbd5e1;
       --muted: #94a3b8;
+      --muted2: #64748b;
       --primary: #38bdf8;
       --primary-dim: #0ea5e9;
+      --primary-glow: rgba(56, 189, 248, 0.15);
       --accent: #a78bfa;
+      --accent-glow: rgba(167, 139, 250, 0.12);
       --success: #34d399;
+      --success-bg: rgba(52, 211, 153, 0.12);
       --danger: #f87171;
-      --radius: 14px;
-      --shadow: 0 8px 30px rgba(0,0,0,.35);
-      --font: 'DM Sans', system-ui, -apple-system, sans-serif;
+      --danger-bg: rgba(248, 113, 113, 0.12);
+      --warning: #fbbf24;
+      --radius: 12px;
+      --radius-lg: 16px;
+      --radius-xl: 20px;
+      --shadow: 0 4px 24px rgba(0,0,0,.4);
+      --shadow-lg: 0 12px 40px rgba(0,0,0,.5);
+      --font: 'Inter', system-ui, -apple-system, sans-serif;
+      --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+      --sidebar-w: 260px;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { height: 100%; }
@@ -37,498 +52,417 @@
       overflow-x: hidden;
     }
     a { color: var(--primary); text-decoration: none; }
-    button, input, select, textarea {
-      font-family: inherit;
-      font-size: 1rem;
-    }
+    button, input, select, textarea { font-family: inherit; font-size: 0.9375rem; }
     .hidden { display: none !important; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--muted2); }
 
-    /* Layout */
-    #app { min-height: 100%; display: flex; flex-direction: column; }
-    .container { width: 100%; max-width: 720px; margin: 0 auto; padding: 0 16px; }
-
-    /* Auth screens */
     .auth-screen {
       min-height: 100vh;
       display: flex;
       flex-direction: column;
       justify-content: center;
+      align-items: center;
       padding: 32px 16px;
       background:
-        radial-gradient(ellipse 80% 50% at 50% -20%, rgba(56,189,248,.18), transparent),
+        radial-gradient(ellipse 70% 50% at 50% -10%, rgba(56,189,248,.12), transparent),
+        radial-gradient(ellipse 50% 40% at 90% 80%, rgba(167,139,250,.08), transparent),
         var(--bg);
+    }
+    .auth-card {
+      width: 100%;
+      max-width: 400px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-xl);
+      padding: 32px 28px;
+      box-shadow: var(--shadow-lg);
     }
     .logo {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 14px;
       justify-content: center;
-      margin-bottom: 32px;
+      margin-bottom: 28px;
     }
     .logo-icon {
-      width: 48px; height: 48px;
+      width: 52px; height: 52px;
       background: linear-gradient(135deg, var(--primary), var(--accent));
       border-radius: 14px;
       display: grid;
       place-items: center;
-      font-size: 1.6rem;
+      font-size: 1.7rem;
+      box-shadow: 0 8px 24px rgba(56,189,248,.25);
     }
-    .logo h1 {
-      font-size: 1.75rem;
-      font-weight: 700;
-      letter-spacing: -0.03em;
-    }
-    .logo span { color: var(--muted); font-weight: 400; font-size: 0.95rem; display: block; }
-    .card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 24px;
-      box-shadow: var(--shadow);
-    }
+    .logo h1 { font-size: 1.75rem; font-weight: 800; letter-spacing: -0.04em; }
+    .logo span { color: var(--muted); font-weight: 400; font-size: 0.875rem; display: block; margin-top: 2px; }
     .tabs {
-      display: flex;
-      gap: 4px;
-      background: var(--surface2);
-      padding: 4px;
-      border-radius: 10px;
-      margin-bottom: 20px;
+      display: flex; gap: 4px; background: var(--bg); padding: 4px;
+      border-radius: 10px; margin-bottom: 22px; border: 1px solid var(--border-subtle);
     }
     .tabs button {
-      flex: 1;
-      padding: 10px;
-      border: none;
-      background: transparent;
-      color: var(--muted);
-      border-radius: 8px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: .2s;
+      flex: 1; padding: 10px; border: none; background: transparent; color: var(--muted);
+      border-radius: 8px; font-weight: 600; font-size: 0.875rem; cursor: pointer; transition: .2s;
     }
-    .tabs button.active {
-      background: var(--surface);
-      color: var(--text);
-      box-shadow: 0 1px 4px rgba(0,0,0,.2);
-    }
+    .tabs button.active { background: var(--surface2); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.25); }
     .field { margin-bottom: 16px; }
     .field label {
-      display: block;
-      font-size: 0.85rem;
-      font-weight: 500;
-      color: var(--muted);
-      margin-bottom: 6px;
+      display: block; font-size: 0.8rem; font-weight: 600; color: var(--muted);
+      margin-bottom: 6px; letter-spacing: 0.01em;
     }
     .field input, .field textarea, .field select {
-      width: 100%;
-      padding: 12px 14px;
-      background: var(--bg);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      color: var(--text);
-      outline: none;
-      transition: border .2s;
+      width: 100%; padding: 11px 14px; background: var(--bg); border: 1px solid var(--border);
+      border-radius: 10px; color: var(--text); outline: none; transition: border .2s, box-shadow .2s;
     }
     .field input:focus, .field textarea:focus, .field select:focus {
-      border-color: var(--primary);
+      border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-glow);
     }
     .btn {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      padding: 12px 20px;
-      border: none;
-      border-radius: 10px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: .2s;
-      width: 100%;
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      padding: 11px 18px; border: none; border-radius: 10px; font-weight: 600;
+      font-size: 0.9rem; cursor: pointer; transition: .2s; white-space: nowrap;
     }
     .btn-primary {
       background: linear-gradient(135deg, var(--primary-dim), var(--primary));
-      color: #0b1220;
+      color: #06101a; box-shadow: 0 4px 14px rgba(14,165,233,.3);
     }
-    .btn-primary:hover { filter: brightness(1.08); }
-    .btn-primary:disabled { opacity: .6; cursor: not-allowed; }
-    .btn-ghost {
-      background: transparent;
-      color: var(--muted);
-      border: 1px solid var(--border);
-    }
-    .btn-ghost:hover { background: var(--surface2); color: var(--text); }
-    .btn-danger {
-      background: rgba(248,113,113,.15);
-      color: var(--danger);
-      border: 1px solid rgba(248,113,113,.3);
-    }
-    .btn-sm { padding: 8px 14px; font-size: 0.875rem; width: auto; }
+    .btn-primary:hover { filter: brightness(1.08); transform: translateY(-1px); }
+    .btn-primary:disabled { opacity: .55; cursor: not-allowed; transform: none; }
+    .btn-ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+    .btn-ghost:hover { background: var(--surface2); color: var(--text); border-color: var(--muted2); }
+    .btn-danger { background: var(--danger-bg); color: var(--danger); border: 1px solid rgba(248,113,113,.25); }
+    .btn-danger:hover { background: rgba(248,113,113,.22); }
+    .btn-sm { padding: 7px 12px; font-size: 0.8125rem; }
+    .btn-block { width: 100%; }
     .error-msg {
-      background: rgba(248,113,113,.12);
-      color: var(--danger);
-      padding: 10px 14px;
-      border-radius: 8px;
-      font-size: 0.9rem;
-      margin-bottom: 16px;
-      display: none;
+      background: var(--danger-bg); color: var(--danger); padding: 10px 14px;
+      border-radius: 8px; font-size: 0.875rem; margin-bottom: 16px; display: none;
+      border: 1px solid rgba(248,113,113,.2);
     }
     .error-msg.show { display: block; }
 
-    /* App shell */
-    .topbar {
-      position: sticky;
-      top: 0;
-      z-index: 50;
-      background: rgba(11,18,32,.85);
-      backdrop-filter: blur(12px);
-      border-bottom: 1px solid var(--border);
-      padding: 12px 0;
+    #app-view { min-height: 100vh; display: flex; }
+    .sidebar {
+      display: none; width: var(--sidebar-w); flex-shrink: 0; background: var(--bg-elevated);
+      border-right: 1px solid var(--border-subtle); flex-direction: column; height: 100vh;
+      position: sticky; top: 0; z-index: 40;
     }
-    .topbar-inner {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
+    .sidebar-brand {
+      display: flex; align-items: center; gap: 12px; padding: 20px 20px 16px;
+      border-bottom: 1px solid var(--border-subtle);
     }
-    .topbar .brand {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-weight: 700;
-      font-size: 1.15rem;
+    .sidebar-brand .icon {
+      width: 36px; height: 36px; background: linear-gradient(135deg, var(--primary), var(--accent));
+      border-radius: 10px; display: grid; place-items: center; font-size: 1.15rem;
     }
-    .topbar .brand .icon {
-      width: 32px; height: 32px;
-      background: linear-gradient(135deg, var(--primary), var(--accent));
-      border-radius: 9px;
-      display: grid;
-      place-items: center;
-      font-size: 1rem;
+    .sidebar-brand h1 { font-size: 1.15rem; font-weight: 800; letter-spacing: -0.03em; }
+    .sidebar-brand span { font-size: 0.7rem; color: var(--muted2); font-weight: 500; }
+    .sidebar-nav { flex: 1; padding: 16px 12px; display: flex; flex-direction: column; gap: 4px; }
+    .sidebar-nav button {
+      display: flex; align-items: center; gap: 12px; width: 100%; padding: 11px 14px;
+      border: none; background: transparent; color: var(--muted); border-radius: 10px;
+      font-weight: 500; font-size: 0.9rem; cursor: pointer; transition: .15s; text-align: left;
     }
-    .user-chip {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 0.875rem;
-      color: var(--muted);
-    }
+    .sidebar-nav button:hover { background: var(--surface2); color: var(--text); }
+    .sidebar-nav button.active { background: var(--primary-glow); color: var(--primary); }
+    .sidebar-nav button i { width: 20px; height: 20px; flex-shrink: 0; }
+    .sidebar-footer { padding: 12px 16px 20px; border-top: 1px solid var(--border-subtle); }
+    .user-chip { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 10px; transition: .15s; }
+    .user-chip:hover { background: var(--surface2); }
     .avatar {
-      width: 32px; height: 32px;
-      border-radius: 50%;
-      background: var(--surface2);
-      display: grid;
-      place-items: center;
-      font-weight: 600;
-      color: var(--primary);
-      border: 1px solid var(--border);
+      width: 34px; height: 34px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--surface3), var(--surface2));
+      display: grid; place-items: center; font-weight: 700; font-size: 0.85rem;
+      color: var(--primary); border: 1px solid var(--border); flex-shrink: 0;
     }
+    .user-meta { flex: 1; min-width: 0; }
+    .user-meta .name { font-size: 0.85rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .user-meta .email { font-size: 0.7rem; color: var(--muted2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-    main { flex: 1; padding: 20px 0 80px; }
+    .main-wrap { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 100vh; }
+    .topbar-mobile {
+      display: flex; align-items: center; justify-content: space-between; padding: 12px 16px;
+      background: rgba(7,11,18,.9); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border-subtle);
+      position: sticky; top: 0; z-index: 30;
+    }
+    .topbar-mobile .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 1.1rem; }
+    .topbar-mobile .brand .icon {
+      width: 30px; height: 30px; background: linear-gradient(135deg, var(--primary), var(--accent));
+      border-radius: 8px; display: grid; place-items: center; font-size: 0.95rem;
+    }
+    .content { flex: 1; padding: 20px 16px 100px; max-width: 1100px; width: 100%; margin: 0 auto; }
 
-    /* Dashboard */
     .section-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 16px;
-      gap: 12px;
+      display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;
+      gap: 12px; flex-wrap: wrap;
     }
-    .section-header h2 {
-      font-size: 1.25rem;
-      font-weight: 600;
-      letter-spacing: -0.02em;
-    }
-    .projects-grid {
-      display: grid;
-      gap: 12px;
-    }
-    .project-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 16px;
-      cursor: pointer;
-      transition: .2s;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-    .project-card:hover, .project-card:active {
-      border-color: var(--primary);
-      transform: translateY(-1px);
-    }
-    .project-card h3 {
-      font-size: 1.05rem;
-      font-weight: 600;
-    }
-    .project-card p {
-      font-size: 0.875rem;
-      color: var(--muted);
-      display: -webkit-box;
-      -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical;
-      overflow: hidden;
-    }
-    .meta {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      font-size: 0.75rem;
-      color: var(--muted);
-      margin-top: 4px;
-    }
-    .badge {
-      background: var(--surface2);
-      padding: 3px 8px;
-      border-radius: 6px;
-      border: 1px solid var(--border);
-    }
-    .empty {
-      text-align: center;
-      padding: 48px 20px;
-      color: var(--muted);
-    }
-    .empty i { opacity: .5; margin-bottom: 12px; }
+    .section-header h2 { font-size: 1.35rem; font-weight: 700; letter-spacing: -0.03em; }
+    .section-header .sub { font-size: 0.85rem; color: var(--muted); margin-top: 2px; }
 
-    /* Project detail */
-    .back-btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      color: var(--muted);
-      font-size: 0.9rem;
-      margin-bottom: 16px;
-      background: none;
-      border: none;
-      cursor: pointer;
-      padding: 0;
-    }
-    .back-btn:hover { color: var(--text); }
-    .detail-header {
-      margin-bottom: 20px;
-    }
-    .detail-header h1 {
-      font-size: 1.5rem;
-      font-weight: 700;
-      letter-spacing: -0.03em;
-      margin-bottom: 4px;
-    }
-    .actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin: 16px 0;
-    }
     .panel {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 16px;
-      margin-bottom: 16px;
+      background: var(--surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg);
+      padding: 18px; margin-bottom: 16px; transition: border-color .2s;
     }
+    .panel:hover { border-color: var(--border); }
     .panel h3 {
-      font-size: 0.95rem;
-      font-weight: 600;
-      margin-bottom: 12px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
+      font-size: 0.9rem; font-weight: 600; margin-bottom: 14px; display: flex;
+      align-items: center; gap: 8px; color: var(--text-secondary);
     }
-    .file-list {
-      list-style: none;
-      font-size: 0.875rem;
+    .panel h3 i { width: 18px; height: 18px; color: var(--primary); }
+
+    .projects-grid { display: grid; gap: 14px; grid-template-columns: 1fr; }
+    @media (min-width: 640px) { .projects-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (min-width: 960px) { .projects-grid { grid-template-columns: repeat(3, 1fr); } }
+    .project-card {
+      background: var(--surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg);
+      padding: 18px; cursor: pointer; transition: .2s; display: flex; flex-direction: column;
+      gap: 8px; position: relative; overflow: hidden;
     }
+    .project-card::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+      background: linear-gradient(90deg, var(--primary), var(--accent)); opacity: 0; transition: .2s;
+    }
+    .project-card:hover { border-color: var(--primary); transform: translateY(-2px); box-shadow: var(--shadow); }
+    .project-card:hover::before { opacity: 1; }
+    .project-card h3 { font-size: 1.05rem; font-weight: 700; letter-spacing: -0.02em; }
+    .project-card p {
+      font-size: 0.85rem; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical; overflow: hidden; flex: 1;
+    }
+    .meta { display: flex; flex-wrap: wrap; gap: 8px; font-size: 0.75rem; color: var(--muted2); margin-top: 6px; }
+    .badge {
+      background: var(--surface2); padding: 3px 9px; border-radius: 6px; border: 1px solid var(--border);
+      font-weight: 500; color: var(--muted);
+    }
+    .empty { text-align: center; padding: 56px 24px; color: var(--muted); grid-column: 1 / -1; }
+    .empty i { opacity: .4; margin-bottom: 14px; }
+    .empty .hint { font-size: 0.85rem; color: var(--muted2); margin-top: 8px; }
+
+    .back-btn {
+      display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 0.875rem;
+      font-weight: 500; margin-bottom: 16px; background: none; border: none; cursor: pointer;
+      padding: 4px 0; transition: .15s;
+    }
+    .back-btn:hover { color: var(--primary); }
+    .detail-header { margin-bottom: 20px; }
+    .detail-header h1 { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.03em; margin-bottom: 4px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 20px; }
+
+    .file-list { list-style: none; font-size: 0.875rem; }
     .file-list li {
-      padding: 8px 0;
-      border-bottom: 1px solid var(--border);
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      color: var(--muted);
+      padding: 10px 0; border-bottom: 1px solid var(--border-subtle); display: flex;
+      align-items: center; gap: 10px; color: var(--muted);
     }
     .file-list li:last-child { border-bottom: none; }
-    .file-list .name { color: var(--text); flex: 1; word-break: break-all; }
-    .file-actions { display: flex; gap: 4px; }
+    .file-list .name { color: var(--text); flex: 1; word-break: break-all; font-family: var(--mono); font-size: 0.8rem; }
+    .file-actions { display: flex; gap: 2px; }
     .file-actions button {
-      background: transparent;
-      border: none;
-      color: var(--muted);
-      cursor: pointer;
-      padding: 4px;
-      border-radius: 6px;
+      background: transparent; border: none; color: var(--muted2); cursor: pointer;
+      padding: 6px; border-radius: 6px; transition: .15s;
     }
     .file-actions button:hover { color: var(--primary); background: var(--surface2); }
+
+    .dropzone {
+      border: 2px dashed var(--border); border-radius: 12px; padding: 32px 16px;
+      text-align: center; color: var(--muted); cursor: pointer; transition: .2s;
+    }
+    .dropzone:hover, .dropzone.drag {
+      border-color: var(--primary); background: var(--primary-glow); color: var(--text-secondary);
+    }
+    .dropzone input { display: none; }
+
+    .build-card {
+      background: var(--surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg);
+      padding: 16px; margin-bottom: 12px; transition: border-color .2s;
+    }
+    .build-card:hover { border-color: var(--border); }
+    .build-card .head {
+      display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 10px;
+    }
+    .build-card .title { font-weight: 600; font-size: 0.95rem; letter-spacing: -0.01em; }
+    .build-card .time { font-size: 0.75rem; color: var(--muted2); margin-top: 3px; }
+    .status-pill {
+      display: inline-flex; align-items: center; gap: 5px; padding: 4px 11px; border-radius: 999px;
+      font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; flex-shrink: 0;
+    }
+    .status-prepared { background: var(--primary-glow); color: var(--primary); }
+    .status-queued { background: rgba(148,163,184,.12); color: var(--muted); }
+    .status-building { background: var(--accent-glow); color: var(--accent); }
+    .status-success { background: var(--success-bg); color: var(--success); }
+    .status-failed { background: var(--danger-bg); color: var(--danger); }
+
     .log-box {
-      background: #0a0f1a;
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 12px;
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-size: 0.75rem;
-      line-height: 1.55;
-      max-height: 220px;
-      overflow-y: auto;
-      color: #94a3b8;
-      white-space: pre-wrap;
-      word-break: break-all;
+      background: #060a12; border: 1px solid var(--border-subtle); border-radius: 10px;
+      padding: 12px 14px; font-family: var(--mono); font-size: 0.72rem; line-height: 1.6;
+      max-height: 260px; overflow-y: auto; color: #94a3b8; white-space: pre-wrap; word-break: break-all;
     }
     .log-box .ok { color: #34d399; }
     .log-box .err { color: #f87171; }
-    .build-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 14px;
-      margin-bottom: 12px;
-    }
-    .build-card .head {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 10px;
-      margin-bottom: 10px;
-    }
-    .status-building { background: rgba(167,139,250,.15); color: var(--accent); }
-    .status-queued { background: rgba(148,163,184,.15); color: var(--muted); }
-    .dropzone {
-      border: 2px dashed var(--border);
-      border-radius: 12px;
-      padding: 28px 16px;
-      text-align: center;
-      color: var(--muted);
-      cursor: pointer;
-      transition: .2s;
-    }
-    .dropzone:hover, .dropzone.drag {
-      border-color: var(--primary);
-      background: rgba(56,189,248,.06);
-    }
-    .dropzone input { display: none; }
-    .config-grid {
-      display: grid;
-      gap: 12px;
-    }
-    @media (min-width: 520px) {
-      .config-grid { grid-template-columns: 1fr 1fr; }
-    }
-    .status-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 4px 10px;
-      border-radius: 999px;
-      font-size: 0.75rem;
-      font-weight: 500;
-    }
-    .status-prepared { background: rgba(56,189,248,.15); color: var(--primary); }
-    .status-success { background: rgba(52,211,153,.15); color: var(--success); }
-    .status-failed { background: rgba(248,113,113,.15); color: var(--danger); }
+    .log-box .info { color: #38bdf8; }
 
-    /* Bottom nav (mobile) */
+    .config-grid { display: grid; gap: 14px; }
+    @media (min-width: 520px) { .config-grid { grid-template-columns: 1fr 1fr; } }
+
     .bottom-nav {
-      position: fixed;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      background: rgba(17,24,39,.92);
-      backdrop-filter: blur(12px);
-      border-top: 1px solid var(--border);
-      padding: 8px 0 max(8px, env(safe-area-inset-bottom));
-      display: flex;
-      justify-content: space-around;
-      z-index: 40;
+      position: fixed; bottom: 0; left: 0; right: 0; background: rgba(12,18,32,.95);
+      backdrop-filter: blur(16px); border-top: 1px solid var(--border-subtle);
+      padding: 8px 0 max(8px, env(safe-area-inset-bottom)); display: flex;
+      justify-content: space-around; z-index: 40;
     }
     .bottom-nav button {
-      background: none;
-      border: none;
-      color: var(--muted);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 2px;
-      font-size: 0.7rem;
-      font-weight: 500;
-      padding: 6px 12px;
-      cursor: pointer;
+      background: none; border: none; color: var(--muted2); display: flex; flex-direction: column;
+      align-items: center; gap: 3px; font-size: 0.65rem; font-weight: 600; padding: 6px 14px;
+      cursor: pointer; transition: .15s;
     }
     .bottom-nav button.active { color: var(--primary); }
     .bottom-nav button i { width: 22px; height: 22px; }
 
-    /* Toast */
     .toast {
-      position: fixed;
-      bottom: 90px;
-      left: 50%;
-      transform: translateX(-50%) translateY(20px);
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      color: var(--text);
-      padding: 12px 20px;
-      border-radius: 12px;
-      font-size: 0.9rem;
-      opacity: 0;
-      transition: .3s;
-      z-index: 100;
-      max-width: 90%;
-      text-align: center;
-      pointer-events: none;
+      position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%) translateY(20px);
+      background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+      padding: 12px 22px; border-radius: 12px; font-size: 0.875rem; font-weight: 500;
+      opacity: 0; transition: .3s; z-index: 100; max-width: 90%; text-align: center;
+      pointer-events: none; box-shadow: var(--shadow);
     }
-    .toast.show {
-      opacity: 1;
-      transform: translateX(-50%) translateY(0);
-    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
-    /* Loading spinner */
     .spinner {
-      width: 20px; height: 20px;
-      border: 2px solid transparent;
-      border-top-color: currentColor;
-      border-radius: 50%;
-      animation: spin .7s linear infinite;
+      width: 18px; height: 18px; border: 2px solid transparent; border-top-color: currentColor;
+      border-radius: 50%; animation: spin .7s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    /* Modal */
     .modal-overlay {
-      position: fixed;
-      inset: 0;
-      background: rgba(0,0,0,.6);
-      display: flex;
-      align-items: flex-end;
-      justify-content: center;
-      z-index: 60;
-      padding: 16px;
+      position: fixed; inset: 0; background: rgba(0,0,0,.65); display: flex; align-items: flex-end;
+      justify-content: center; z-index: 60; padding: 16px; backdrop-filter: blur(4px);
     }
-    @media (min-width: 520px) {
-      .modal-overlay { align-items: center; }
-    }
+    @media (min-width: 520px) { .modal-overlay { align-items: center; } }
     .modal {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 16px 16px 0 0;
-      width: 100%;
-      max-width: 480px;
-      max-height: 90vh;
-      overflow-y: auto;
-      padding: 24px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 18px 18px 0 0;
+      width: 100%; max-width: 480px; max-height: 90vh; overflow-y: auto; padding: 24px;
+      box-shadow: var(--shadow-lg);
     }
-    @media (min-width: 520px) {
-      .modal { border-radius: 16px; }
-    }
-    .modal h2 {
-      font-size: 1.2rem;
-      margin-bottom: 16px;
-    }
-    .modal-actions {
-      display: flex;
-      gap: 10px;
-      margin-top: 20px;
-    }
+    @media (min-width: 520px) { .modal { border-radius: 18px; } }
+    .modal h2 { font-size: 1.2rem; font-weight: 700; margin-bottom: 18px; letter-spacing: -0.02em; }
+    .modal-actions { display: flex; gap: 10px; margin-top: 22px; }
     .modal-actions .btn { flex: 1; }
+
+    @media (min-width: 900px) {
+      .sidebar { display: flex; }
+      .topbar-mobile { display: none; }
+      .bottom-nav { display: none; }
+      .content { padding: 28px 32px 40px; }
+      .toast { bottom: 32px; }
+    }
+
+    .chat-layer {
+      position: fixed; inset: 0; z-index: 80; display: flex; background: var(--bg);
+    }
+    .chat-sidebar {
+      width: 280px; flex-shrink: 0; background: var(--bg-elevated); border-right: 1px solid var(--border-subtle);
+      display: flex; flex-direction: column; height: 100%;
+    }
+    .chat-sidebar-header {
+      padding: 16px 18px; border-bottom: 1px solid var(--border-subtle);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .chat-sidebar-header h3 { font-size: 0.95rem; font-weight: 700; }
+    .chat-tools {
+      padding: 12px; display: flex; flex-direction: column; gap: 4px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .chat-tools button {
+      display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px;
+      border: none; background: transparent; color: var(--muted); border-radius: 8px;
+      font-size: 0.85rem; font-weight: 500; cursor: pointer; text-align: left; transition: .15s;
+    }
+    .chat-tools button:hover { background: var(--surface2); color: var(--text); }
+    .chat-tools button.active { background: var(--primary-glow); color: var(--primary); }
+    .chat-history { flex: 1; overflow-y: auto; padding: 12px; }
+    .chat-history-item {
+      padding: 10px 12px; border-radius: 8px; cursor: pointer; margin-bottom: 4px; transition: .15s;
+    }
+    .chat-history-item:hover { background: var(--surface2); }
+    .chat-history-item .q {
+      font-size: 0.8rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .chat-history-item .t { font-size: 0.7rem; color: var(--muted2); margin-top: 2px; }
+    .chat-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+    .chat-header {
+      padding: 14px 20px; border-bottom: 1px solid var(--border-subtle);
+      display: flex; align-items: center; justify-content: space-between; background: var(--bg-elevated);
+    }
+    .chat-header h2 { font-size: 1.05rem; font-weight: 700; }
+    .chat-messages {
+      flex: 1; overflow-y: auto; padding: 24px 20px; display: flex; flex-direction: column; gap: 16px;
+    }
+    .chat-msg { max-width: 720px; width: 100%; margin: 0 auto; }
+    .chat-msg.user .bubble {
+      background: var(--primary-glow); border: 1px solid rgba(56,189,248,.2);
+      margin-left: auto; max-width: 85%;
+    }
+    .chat-msg.assistant .bubble { background: var(--surface); border: 1px solid var(--border-subtle); }
+    .chat-msg .bubble { padding: 14px 16px; border-radius: 14px; font-size: 0.9rem; line-height: 1.6; }
+    .chat-msg .bubble code {
+      font-family: var(--mono); font-size: 0.8rem; background: var(--bg); padding: 2px 6px; border-radius: 4px;
+    }
+    .chat-msg .role {
+      font-size: 0.7rem; font-weight: 600; color: var(--muted2); margin-bottom: 6px;
+      text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .chat-input-area {
+      padding: 16px 20px 20px; border-top: 1px solid var(--border-subtle); background: var(--bg-elevated);
+    }
+    .chat-input-wrap {
+      max-width: 720px; margin: 0 auto; display: flex; gap: 10px; align-items: flex-end;
+    }
+    .chat-input-wrap textarea {
+      flex: 1; padding: 12px 16px; background: var(--bg); border: 1px solid var(--border);
+      border-radius: 12px; color: var(--text); resize: none; min-height: 48px; max-height: 140px;
+      outline: none; font-size: 0.9rem; line-height: 1.5;
+    }
+    .chat-input-wrap textarea:focus {
+      border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-glow);
+    }
+    .chat-suggestions {
+      display: flex; flex-wrap: wrap; gap: 8px; max-width: 720px; margin: 0 auto 12px;
+    }
+    .chat-suggestions button {
+      padding: 7px 14px; background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 20px; color: var(--muted); font-size: 0.8rem; font-weight: 500;
+      cursor: pointer; transition: .15s;
+    }
+    .chat-suggestions button:hover {
+      border-color: var(--primary); color: var(--primary); background: var(--primary-glow);
+    }
+    @media (max-width: 899px) {
+      .chat-sidebar { display: none; }
+      .chat-layer.tools-open .chat-sidebar {
+        display: flex; position: absolute; left: 0; top: 0; bottom: 0; z-index: 5; box-shadow: var(--shadow-lg);
+      }
+    }
+
+    .stats-row {
+      display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 24px;
+    }
+    @media (min-width: 640px) { .stats-row { grid-template-columns: repeat(4, 1fr); } }
+    .stat-card {
+      background: var(--surface); border: 1px solid var(--border-subtle); border-radius: var(--radius); padding: 16px;
+    }
+    .stat-card .label {
+      font-size: 0.75rem; font-weight: 600; color: var(--muted2); text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .stat-card .value { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.03em; margin-top: 4px; }
+    .stat-card .value.primary { color: var(--primary); }
+    .stat-card .value.success { color: var(--success); }
+    .stat-card .value.accent { color: var(--accent); }
+    .artifact-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
   </style>
 </head>
 <body>
   <div id="app">
-    <!-- AUTH -->
     <div id="auth-view" class="auth-screen">
       <div class="logo">
         <div class="logo-icon">🐬</div>
@@ -537,162 +471,221 @@
           <span>HTML → APK · AAB · IPA</span>
         </div>
       </div>
-      <div class="container" style="max-width:400px">
-        <div class="card">
-          <div class="tabs">
-            <button type="button" class="active" data-tab="login">Login</button>
-            <button type="button" data-tab="register">Register</button>
-          </div>
-          <div id="auth-error" class="error-msg"></div>
-          <form id="login-form">
-            <div class="field">
-              <label>Email</label>
-              <input type="email" name="email" required autocomplete="email" placeholder="you@example.com" />
-            </div>
-            <div class="field">
-              <label>Password</label>
-              <input type="password" name="password" required minlength="6" autocomplete="current-password" placeholder="••••••••" />
-            </div>
-            <button type="submit" class="btn btn-primary">
-              <i data-lucide="log-in"></i> Sign in
-            </button>
-          </form>
-          <form id="register-form" class="hidden">
-            <div class="field">
-              <label>Name</label>
-              <input type="text" name="name" placeholder="Your name" />
-            </div>
-            <div class="field">
-              <label>Email</label>
-              <input type="email" name="email" required autocomplete="email" placeholder="you@example.com" />
-            </div>
-            <div class="field">
-              <label>Password</label>
-              <input type="password" name="password" required minlength="6" autocomplete="new-password" placeholder="Min 6 characters" />
-            </div>
-            <button type="submit" class="btn btn-primary">
-              <i data-lucide="user-plus"></i> Create account
-            </button>
-          </form>
+      <div class="auth-card">
+        <div class="tabs">
+          <button type="button" class="active" data-tab="login">Login</button>
+          <button type="button" data-tab="register">Register</button>
         </div>
-        <p style="text-align:center;margin-top:20px;font-size:0.8rem;color:var(--muted)">
-          Mobile-first · Expo · GitHub Actions ready
-        </p>
+        <div id="auth-error" class="error-msg"></div>
+        <form id="login-form">
+          <div class="field">
+            <label>Email</label>
+            <input type="email" name="email" required autocomplete="email" placeholder="you@example.com" />
+          </div>
+          <div class="field">
+            <label>Password</label>
+            <input type="password" name="password" required minlength="6" autocomplete="current-password" placeholder="••••••••" />
+          </div>
+          <button type="submit" class="btn btn-primary btn-block">
+            <i data-lucide="log-in"></i> Sign in
+          </button>
+        </form>
+        <form id="register-form" class="hidden">
+          <div class="field">
+            <label>Name</label>
+            <input type="text" name="name" placeholder="Your name" />
+          </div>
+          <div class="field">
+            <label>Email</label>
+            <input type="email" name="email" required autocomplete="email" placeholder="you@example.com" />
+          </div>
+          <div class="field">
+            <label>Password</label>
+            <input type="password" name="password" required minlength="6" autocomplete="new-password" placeholder="Min 6 characters" />
+          </div>
+          <button type="submit" class="btn btn-primary btn-block">
+            <i data-lucide="user-plus"></i> Create account
+          </button>
+        </form>
       </div>
+      <p style="text-align:center;margin-top:24px;font-size:0.8rem;color:var(--muted2)">
+        Mobile-first · Expo · Local &amp; Cloud builds
+      </p>
     </div>
 
-    <!-- APP -->
     <div id="app-view" class="hidden">
-      <header class="topbar">
-        <div class="container topbar-inner">
+      <aside class="sidebar">
+        <div class="sidebar-brand">
+          <div class="icon">🐬</div>
+          <div>
+            <h1>Dolphine</h1>
+            <span>HTML → Mobile</span>
+          </div>
+        </div>
+        <nav class="sidebar-nav">
+          <button type="button" data-nav="dashboard" class="active">
+            <i data-lucide="layout-grid"></i> Projects
+          </button>
+          <button type="button" data-nav="builds">
+            <i data-lucide="package"></i> Builds
+          </button>
+          <button type="button" data-nav="chat">
+            <i data-lucide="message-square"></i> Build Chat
+          </button>
+        </nav>
+        <div class="sidebar-footer">
+          <div class="user-chip">
+            <div class="avatar" id="user-avatar">U</div>
+            <div class="user-meta">
+              <div class="name" id="user-name">User</div>
+              <div class="email" id="user-email"></div>
+            </div>
+            <button type="button" id="btn-logout-side" class="btn btn-ghost btn-sm" title="Logout" style="padding:6px;border:none">
+              <i data-lucide="log-out" style="width:16px;height:16px"></i>
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <div class="main-wrap">
+        <header class="topbar-mobile">
           <div class="brand">
             <div class="icon">🐬</div>
             Dolphine
           </div>
-          <div class="user-chip">
-            <div class="avatar" id="user-avatar">U</div>
-            <span id="user-name">User</span>
-          </div>
-        </div>
-      </header>
+          <div class="avatar" id="user-avatar-m" style="width:30px;height:30px;font-size:0.8rem">U</div>
+        </header>
 
-      <main>
-        <div class="container">
-          <!-- Dashboard -->
+        <div class="content">
           <div id="dashboard-view">
             <div class="section-header">
-              <h2>Projects</h2>
+              <div>
+                <h2>Projects</h2>
+                <div class="sub">Wrap any HTML site as a native app</div>
+              </div>
               <button class="btn btn-primary btn-sm" id="btn-new-project">
-                <i data-lucide="plus"></i> New
+                <i data-lucide="plus"></i> New project
               </button>
+            </div>
+            <div class="stats-row" id="stats-row">
+              <div class="stat-card"><div class="label">Projects</div><div class="value primary" id="stat-projects">0</div></div>
+              <div class="stat-card"><div class="label">Builds</div><div class="value accent" id="stat-builds">0</div></div>
+              <div class="stat-card"><div class="label">Successful</div><div class="value success" id="stat-success">0</div></div>
+              <div class="stat-card"><div class="label">Files</div><div class="value" id="stat-files">0</div></div>
             </div>
             <div id="projects-list" class="projects-grid"></div>
           </div>
 
-          <!-- Project detail -->
           <div id="project-view" class="hidden">
             <button class="back-btn" id="btn-back">
-              <i data-lucide="arrow-left"></i> Projects
+              <i data-lucide="arrow-left"></i> Back to projects
             </button>
             <div class="detail-header">
               <h1 id="proj-name">—</h1>
               <p id="proj-desc" style="color:var(--muted);font-size:0.9rem"></p>
             </div>
-
             <div class="actions">
-              <button class="btn btn-primary btn-sm" id="btn-build">
-                <i data-lucide="hammer"></i> Build
-              </button>
-              <button class="btn btn-ghost btn-sm" id="btn-edit-config">
-                <i data-lucide="settings"></i> Config
-              </button>
-              <button class="btn btn-danger btn-sm" id="btn-delete-project">
-                <i data-lucide="trash-2"></i>
-              </button>
+              <button class="btn btn-primary btn-sm" id="btn-build"><i data-lucide="hammer"></i> Build app</button>
+              <button class="btn btn-ghost btn-sm" id="btn-edit-config"><i data-lucide="settings"></i> Config</button>
+              <button class="btn btn-ghost btn-sm" id="btn-open-chat"><i data-lucide="message-square"></i> Chat</button>
+              <button class="btn btn-danger btn-sm" id="btn-delete-project"><i data-lucide="trash-2"></i></button>
             </div>
-
             <div class="panel">
-              <h3><i data-lucide="upload"></i> Upload</h3>
+              <h3><i data-lucide="upload"></i> Upload files</h3>
               <div class="dropzone" id="dropzone">
-                <input type="file" id="file-input" accept=".zip,.html,.png,.jpg,.jpeg,.css,.js,.json,.svg,.webp" multiple />
-                <i data-lucide="file-up" style="width:32px;height:32px;margin-bottom:8px"></i>
-                <p><strong>Drop ZIP</strong> (index.html + logo.png) or files</p>
-                <p style="font-size:0.8rem;margin-top:4px">ZIP auto-creates structure · Single files update repo</p>
+                <input type="file" id="file-input" accept=".zip,.html,.png,.jpg,.jpeg,.css,.js,.json,.svg,.webp,.woff,.woff2,.ttf" multiple />
+                <i data-lucide="file-up" style="width:36px;height:36px;margin-bottom:10px;opacity:.7"></i>
+                <p><strong>Drop a ZIP</strong> (index.html + assets) or individual files</p>
+                <p style="font-size:0.8rem;margin-top:6px;color:var(--muted2)">ZIP expands into the project · logo.png becomes the app icon</p>
               </div>
             </div>
-
             <div class="panel">
-              <h3><i data-lucide="folder"></i> Files</h3>
-              <ul class="file-list" id="file-list">
-                <li style="color:var(--muted)">No files yet</li>
-              </ul>
+              <h3><i data-lucide="folder"></i> Project files</h3>
+              <ul class="file-list" id="file-list"><li style="color:var(--muted)">No files yet</li></ul>
             </div>
-
             <div class="panel">
               <h3><i data-lucide="history"></i> Recent builds</h3>
               <div id="builds-list"></div>
             </div>
           </div>
 
-          <!-- Builds page -->
           <div id="builds-view" class="hidden">
             <div class="section-header">
-              <h2>Builds</h2>
+              <div>
+                <h2>All builds</h2>
+                <div class="sub">Local APKs and cloud EAS artifacts</div>
+              </div>
+              <button class="btn btn-ghost btn-sm" id="btn-chat-from-builds">
+                <i data-lucide="message-square"></i> Open chat
+              </button>
             </div>
             <div id="all-builds-list"></div>
           </div>
         </div>
-      </main>
+      </div>
 
       <nav class="bottom-nav">
-        <button type="button" data-nav="dashboard" class="active">
-          <i data-lucide="layout-grid"></i>
-          Projects
-        </button>
-        <button type="button" data-nav="builds">
-          <i data-lucide="package"></i>
-          Builds
-        </button>
-        <button type="button" id="btn-logout">
-          <i data-lucide="log-out"></i>
-          Logout
-        </button>
+        <button type="button" data-nav="dashboard" class="active"><i data-lucide="layout-grid"></i> Projects</button>
+        <button type="button" data-nav="builds"><i data-lucide="package"></i> Builds</button>
+        <button type="button" data-nav="chat"><i data-lucide="message-square"></i> Chat</button>
+        <button type="button" id="btn-logout"><i data-lucide="log-out"></i> Logout</button>
       </nav>
+    </div>
+
+    <div id="chat-layer" class="chat-layer hidden">
+      <aside class="chat-sidebar">
+        <div class="chat-sidebar-header">
+          <h3>Build assistant</h3>
+          <button type="button" class="btn btn-ghost btn-sm" id="chat-close-side" style="padding:6px">
+            <i data-lucide="x" style="width:16px;height:16px"></i>
+          </button>
+        </div>
+        <div class="chat-tools">
+          <button type="button" data-tool="help" class="active"><i data-lucide="help-circle" style="width:16px;height:16px"></i> How builds work</button>
+          <button type="button" data-tool="crash"><i data-lucide="bug" style="width:16px;height:16px"></i> Fix APK crash</button>
+          <button type="button" data-tool="local"><i data-lucide="hard-drive" style="width:16px;height:16px"></i> Local build tips</button>
+          <button type="button" data-tool="cloud"><i data-lucide="cloud" style="width:16px;height:16px"></i> Cloud / EAS setup</button>
+          <button type="button" data-tool="assets"><i data-lucide="image" style="width:16px;height:16px"></i> Icons &amp; splash</button>
+          <button type="button" data-tool="logs"><i data-lucide="terminal" style="width:16px;height:16px"></i> Read build logs</button>
+        </div>
+        <div class="chat-history" id="chat-history"></div>
+      </aside>
+      <div class="chat-main">
+        <div class="chat-header">
+          <div style="display:flex;align-items:center;gap:10px">
+            <button type="button" class="btn btn-ghost btn-sm" id="chat-toggle-tools" style="padding:6px">
+              <i data-lucide="panel-left" style="width:18px;height:18px"></i>
+            </button>
+            <h2>🐬 Build Chat</h2>
+          </div>
+          <button type="button" class="btn btn-ghost btn-sm" id="chat-close">
+            <i data-lucide="x" style="width:18px;height:18px"></i> Close
+          </button>
+        </div>
+        <div class="chat-messages" id="chat-messages"></div>
+        <div class="chat-input-area">
+          <div class="chat-suggestions" id="chat-suggestions">
+            <button type="button" data-q="Why does my APK crash on open?">Why does my APK crash?</button>
+            <button type="button" data-q="How do I download the local APK?">Download local APK</button>
+            <button type="button" data-q="What files do I need for a successful build?">Required files</button>
+            <button type="button" data-q="Cloud vs Local build differences">Cloud vs Local</button>
+          </div>
+          <div class="chat-input-wrap">
+            <textarea id="chat-input" rows="1" placeholder="Ask about builds, crashes, config…"></textarea>
+            <button type="button" class="btn btn-primary" id="chat-send" style="padding:12px 16px">
+              <i data-lucide="send" style="width:18px;height:18px"></i>
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
-  <!-- New project modal -->
   <div id="modal-new" class="modal-overlay hidden">
     <div class="modal">
       <h2>New project</h2>
-      <div class="field">
-        <label>Name</label>
-        <input type="text" id="new-name" placeholder="My Awesome App" />
-      </div>
-      <div class="field">
-        <label>Description (optional)</label>
-        <textarea id="new-desc" rows="2" placeholder="Short description"></textarea>
-      </div>
+      <div class="field"><label>Name</label><input type="text" id="new-name" placeholder="My Awesome App" /></div>
+      <div class="field"><label>Description (optional)</label><textarea id="new-desc" rows="2" placeholder="Short description"></textarea></div>
       <div class="modal-actions">
         <button class="btn btn-ghost" id="modal-new-cancel">Cancel</button>
         <button class="btn btn-primary" id="modal-new-create">Create</button>
@@ -700,43 +693,23 @@
     </div>
   </div>
 
-  <!-- Config modal -->
   <div id="modal-config" class="modal-overlay hidden">
     <div class="modal">
       <h2>App configuration</h2>
       <div class="config-grid">
-        <div class="field">
-          <label>App name</label>
-          <input type="text" id="cfg-name" />
-        </div>
-        <div class="field">
-          <label>Slug</label>
-          <input type="text" id="cfg-slug" />
-        </div>
-        <div class="field">
-          <label>Version</label>
-          <input type="text" id="cfg-version" />
-        </div>
-        <div class="field">
-          <label>Orientation</label>
+        <div class="field"><label>App name</label><input type="text" id="cfg-name" /></div>
+        <div class="field"><label>Slug</label><input type="text" id="cfg-slug" /></div>
+        <div class="field"><label>Version</label><input type="text" id="cfg-version" /></div>
+        <div class="field"><label>Orientation</label>
           <select id="cfg-orientation">
             <option value="portrait">Portrait</option>
             <option value="landscape">Landscape</option>
             <option value="default">Default</option>
           </select>
         </div>
-        <div class="field">
-          <label>Android package</label>
-          <input type="text" id="cfg-android-package" />
-        </div>
-        <div class="field">
-          <label>iOS bundle ID</label>
-          <input type="text" id="cfg-ios-bundle" />
-        </div>
-        <div class="field">
-          <label>Splash bg color</label>
-          <input type="text" id="cfg-splash-bg" placeholder="#0f172a" />
-        </div>
+        <div class="field"><label>Android package</label><input type="text" id="cfg-android-package" /></div>
+        <div class="field"><label>iOS bundle ID</label><input type="text" id="cfg-ios-bundle" /></div>
+        <div class="field"><label>Splash bg color</label><input type="text" id="cfg-splash-bg" placeholder="#0f172a" /></div>
       </div>
       <div class="modal-actions">
         <button class="btn btn-ghost" id="modal-config-cancel">Cancel</button>
@@ -745,36 +718,32 @@
     </div>
   </div>
 
-  <!-- Build modal -->
   <div id="modal-build" class="modal-overlay hidden">
     <div class="modal">
       <h2>Start build</h2>
-      <div class="field">
-        <label>Build mode</label>
+      <div class="field"><label>Build mode</label>
         <select id="build-mode">
           <option value="cloud">Cloud — EAS / GitHub Action</option>
           <option value="local">Local — Android build on this machine</option>
         </select>
       </div>
-      <div class="field">
-        <label>Platform</label>
+      <div class="field"><label>Platform</label>
         <select id="build-platform">
           <option value="android">Android (APK / AAB)</option>
           <option value="ios">iOS (IPA)</option>
           <option value="all">Both</option>
         </select>
       </div>
-      <div class="field">
-        <label>Profile</label>
+      <div class="field"><label>Profile</label>
         <select id="build-profile">
           <option value="preview">Preview (APK, internal)</option>
           <option value="production">Production (AAB / store)</option>
           <option value="development">Development client</option>
         </select>
       </div>
-      <p style="font-size:0.85rem;color:var(--muted);margin-top:8px" id="build-mode-hint">
-        <strong>Cloud:</strong> uses EXPO_TOKEN and/or GitHub Action for EAS cloud builds.<br/>
-        <strong>Local:</strong> runs Android build on this machine (needs Android SDK / Java). iOS local only on macOS.
+      <p style="font-size:0.85rem;color:var(--muted);margin-top:8px;line-height:1.55">
+        <strong>Cloud:</strong> uses EXPO_TOKEN and/or GitHub Action.<br/>
+        <strong>Local:</strong> Android SDK + JDK on this machine. iOS local needs macOS.
       </p>
       <div class="modal-actions">
         <button class="btn btn-ghost" id="modal-build-cancel">Cancel</button>
@@ -786,51 +755,46 @@
   <div class="toast" id="toast"></div>
 
   <script>
-    // ---------- State ----------
     const state = {
       token: localStorage.getItem('dolphine_token') || null,
       user: JSON.parse(localStorage.getItem('dolphine_user') || 'null'),
       projects: [],
       currentProject: null,
-      builds: []
+      builds: [],
+      chatHistory: JSON.parse(localStorage.getItem('dolphine_chat') || '[]')
     };
-
     const $ = (sel) => document.querySelector(sel);
     const $$ = (sel) => document.querySelectorAll(sel);
 
-    // ---------- API ----------
     async function api(path, opts = {}) {
       const headers = { ...(opts.headers || {}) };
       if (state.token) headers['Authorization'] = `Bearer ${state.token}`;
-      if (!(opts.body instanceof FormData)) {
-        headers['Content-Type'] = 'application/json';
-      }
+      if (!(opts.body instanceof FormData)) headers['Content-Type'] = 'application/json';
       try {
-        const res = await fetch(`/api${path}`, { ...opts, headers });
+        const res = await fetch('/api' + path, { ...opts, headers });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || res.statusText || `HTTP ${res.status}`);
+        if (!res.ok) throw new Error(data.error || res.statusText || 'HTTP ' + res.status);
         return data;
       } catch (err) {
-        // Network-level failure (common in Codespaces when port is not forwarded)
         if (err.name === 'TypeError' && (err.message === 'Failed to fetch' || err.message.includes('NetworkError'))) {
-          throw new Error('Failed to reach server. In Codespaces: make sure port 3847 is forwarded and you are using the Codespace URL (not localhost).');
+          throw new Error('Failed to reach server. Forward port 3847 and use the Codespace URL.');
         }
         throw err;
       }
     }
 
-    // ---------- UI helpers ----------
-    function toast(msg, ms = 2800) {
+    function toast(msg, ms) {
+      ms = ms || 2800;
       const el = $('#toast');
       el.textContent = msg;
       el.classList.add('show');
       setTimeout(() => el.classList.remove('show'), ms);
     }
-    function showError(el, msg) {
-      el.textContent = msg;
-      el.classList.add('show');
-    }
+    function showError(el, msg) { el.textContent = msg; el.classList.add('show'); }
     function hideError(el) { el.classList.remove('show'); }
+    function escapeHtml(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
 
     function showView(name) {
       ['auth-view', 'app-view'].forEach(id => {
@@ -838,9 +802,7 @@
         if (id === name) el.classList.remove('hidden');
         else el.classList.add('hidden');
       });
-      if (name === 'app-view') {
-        showAppSection('dashboard');
-      }
+      if (name === 'app-view') showAppSection('dashboard');
     }
 
     function showAppSection(section) {
@@ -849,34 +811,36 @@
         if (id === section + '-view') el.classList.remove('hidden');
         else el.classList.add('hidden');
       });
-      $$('.bottom-nav button[data-nav]').forEach(b => {
-        b.classList.toggle('active', b.dataset.nav === section || (section === 'project' && b.dataset.nav === 'dashboard'));
+      $$('[data-nav]').forEach(b => {
+        const nav = b.dataset.nav;
+        b.classList.toggle('active', nav === section || (section === 'project' && nav === 'dashboard'));
       });
     }
 
-    // ---------- Auth ----------
     function setAuth(token, user) {
       state.token = token;
       state.user = user;
       localStorage.setItem('dolphine_token', token);
       localStorage.setItem('dolphine_user', JSON.stringify(user));
-      $('#user-name').textContent = user.name || user.email;
-      $('#user-avatar').textContent = (user.name || user.email || 'U')[0].toUpperCase();
+      const name = user.name || user.email || 'User';
+      const initial = name[0].toUpperCase();
+      $('#user-name').textContent = name;
+      $('#user-email').textContent = user.email || '';
+      $('#user-avatar').textContent = initial;
+      $('#user-avatar-m').textContent = initial;
       showView('app-view');
       loadProjects();
+      loadAllBuildsSilent();
     }
 
     function logout() {
-      state.token = null;
-      state.user = null;
-      state.projects = [];
-      state.currentProject = null;
+      state.token = null; state.user = null; state.projects = []; state.currentProject = null;
       localStorage.removeItem('dolphine_token');
       localStorage.removeItem('dolphine_user');
       showView('auth-view');
+      closeChat();
     }
 
-    // Tabs
     $$('.tabs button').forEach(btn => {
       btn.addEventListener('click', () => {
         $$('.tabs button').forEach(b => b.classList.remove('active'));
@@ -893,15 +857,10 @@
       hideError($('#auth-error'));
       const fd = new FormData(e.target);
       try {
-        const data = await api('/login', {
-          method: 'POST',
-          body: JSON.stringify({ email: fd.get('email'), password: fd.get('password') })
-        });
+        const data = await api('/login', { method: 'POST', body: JSON.stringify({ email: fd.get('email'), password: fd.get('password') }) });
         setAuth(data.token, data.user);
         toast('Welcome back!');
-      } catch (err) {
-        showError($('#auth-error'), err.message);
-      }
+      } catch (err) { showError($('#auth-error'), err.message); }
     });
 
     $('#register-form').addEventListener('submit', async (e) => {
@@ -909,70 +868,59 @@
       hideError($('#auth-error'));
       const fd = new FormData(e.target);
       try {
-        const data = await api('/register', {
-          method: 'POST',
-          body: JSON.stringify({
-            name: fd.get('name'),
-            email: fd.get('email'),
-            password: fd.get('password')
-          })
-        });
+        const data = await api('/register', { method: 'POST', body: JSON.stringify({ name: fd.get('name'), email: fd.get('email'), password: fd.get('password') }) });
         setAuth(data.token, data.user);
         toast('Account created!');
-      } catch (err) {
-        showError($('#auth-error'), err.message);
-      }
+      } catch (err) { showError($('#auth-error'), err.message); }
     });
 
     $('#btn-logout').addEventListener('click', logout);
+    $('#btn-logout-side').addEventListener('click', logout);
 
-    // ---------- Projects ----------
     async function loadProjects() {
       try {
         state.projects = await api('/projects');
         renderProjects();
+        updateStats();
       } catch (e) {
         if (e.message.includes('Unauthorized') || e.message.includes('Invalid')) logout();
         else toast(e.message);
       }
     }
 
+    async function loadAllBuildsSilent() {
+      try { state.builds = await api('/builds'); updateStats(); } catch (_) {}
+    }
+
+    function updateStats() {
+      $('#stat-projects').textContent = state.projects.length;
+      $('#stat-builds').textContent = state.builds.length;
+      $('#stat-success').textContent = state.builds.filter(b => b.status === 'success').length;
+      const files = state.projects.reduce((n, p) => n + (p.files || []).length, 0);
+      $('#stat-files').textContent = files;
+    }
+
     function renderProjects() {
       const list = $('#projects-list');
       if (!state.projects.length) {
-        list.innerHTML = `
-          <div class="empty">
-            <i data-lucide="folder-plus" style="width:48px;height:48px"></i>
-            <p>No projects yet</p>
-            <p style="font-size:0.85rem;margin-top:6px">Create one and upload your HTML + logo.png</p>
-          </div>`;
+        list.innerHTML = '<div class="empty"><i data-lucide="folder-plus" style="width:52px;height:52px"></i><p style="font-weight:600;color:var(--text-secondary)">No projects yet</p><p class="hint">Create one and upload your HTML + logo.png</p></div>';
         lucide.createIcons();
         return;
       }
-      list.innerHTML = state.projects.map(p => `
-        <div class="project-card" data-id="${p.id}">
-          <h3>${escapeHtml(p.name)}</h3>
-          <p>${escapeHtml(p.description || 'No description')}</p>
-          <div class="meta">
-            <span class="badge">${(p.files || []).length} files</span>
-            <span>${new Date(p.updatedAt || p.createdAt).toLocaleDateString()}</span>
-          </div>
-        </div>
-      `).join('');
+      list.innerHTML = state.projects.map(p =>
+        '<div class="project-card" data-id="' + p.id + '"><h3>' + escapeHtml(p.name) + '</h3><p>' +
+        escapeHtml(p.description || 'No description') + '</p><div class="meta"><span class="badge">' +
+        ((p.files || []).length) + ' files</span><span>' +
+        new Date(p.updatedAt || p.createdAt).toLocaleDateString() + '</span></div></div>'
+      ).join('');
       list.querySelectorAll('.project-card').forEach(card => {
         card.addEventListener('click', () => openProject(card.dataset.id));
       });
       lucide.createIcons();
     }
 
-    function escapeHtml(s) {
-      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-    }
-
-    // New project
     $('#btn-new-project').addEventListener('click', () => {
-      $('#new-name').value = '';
-      $('#new-desc').value = '';
+      $('#new-name').value = ''; $('#new-desc').value = '';
       $('#modal-new').classList.remove('hidden');
     });
     $('#modal-new-cancel').addEventListener('click', () => $('#modal-new').classList.add('hidden'));
@@ -980,21 +928,16 @@
       const name = $('#new-name').value.trim();
       if (!name) return toast('Name required');
       try {
-        const p = await api('/projects', {
-          method: 'POST',
-          body: JSON.stringify({ name, description: $('#new-desc').value.trim() })
-        });
+        const p = await api('/projects', { method: 'POST', body: JSON.stringify({ name, description: $('#new-desc').value.trim() }) });
         $('#modal-new').classList.add('hidden');
         state.projects.unshift(p);
-        renderProjects();
-        openProject(p.id);
-        toast('Project created');
+        renderProjects(); updateStats(); openProject(p.id); toast('Project created');
       } catch (e) { toast(e.message); }
     });
 
     async function openProject(id) {
       try {
-        const p = await api(`/projects/${id}`);
+        const p = await api('/projects/' + id);
         state.currentProject = p;
         $('#proj-name').textContent = p.name;
         $('#proj-desc').textContent = p.description || '';
@@ -1016,63 +959,45 @@
         ul.innerHTML = '<li style="color:var(--muted)">No files yet — upload a ZIP or index.html</li>';
         return;
       }
-      ul.innerHTML = files.map(f => `
-        <li data-file="${escapeHtml(f)}">
-          <i data-lucide="file" style="width:16px;height:16px"></i>
-          <span class="name">${escapeHtml(f)}</span>
-          <div class="file-actions">
-            <button type="button" class="btn-rename" title="Rename"><i data-lucide="pencil" style="width:15px;height:15px"></i></button>
-            <button type="button" class="btn-rm" title="Delete"><i data-lucide="trash-2" style="width:15px;height:15px"></i></button>
-          </div>
-        </li>
-      `).join('');
+      ul.innerHTML = files.map(f =>
+        '<li data-file="' + escapeHtml(f) + '"><i data-lucide="file" style="width:16px;height:16px;opacity:.6"></i>' +
+        '<span class="name">' + escapeHtml(f) + '</span><div class="file-actions">' +
+        '<button type="button" class="btn-rename" title="Rename"><i data-lucide="pencil" style="width:15px;height:15px"></i></button>' +
+        '<button type="button" class="btn-rm" title="Delete"><i data-lucide="trash-2" style="width:15px;height:15px"></i></button></div></li>'
+      ).join('');
       ul.querySelectorAll('.btn-rename').forEach(btn => {
         btn.addEventListener('click', async (e) => {
           e.stopPropagation();
-          const li = btn.closest('li');
-          const from = li.dataset.file;
+          const from = btn.closest('li').dataset.file;
           const to = prompt('New name (relative path):', from);
           if (!to || to === from) return;
           try {
-            const res = await api(`/projects/${state.currentProject.id}/rename`, {
-              method: 'POST',
-              body: JSON.stringify({ from, to })
-            });
-            state.currentProject = res.project;
-            renderFiles(res.files || []);
-            toast('Renamed');
+            const res = await api('/projects/' + state.currentProject.id + '/rename', { method: 'POST', body: JSON.stringify({ from, to }) });
+            state.currentProject = res.project; renderFiles(res.files || []); toast('Renamed');
           } catch (err) { toast(err.message); }
         });
       });
       ul.querySelectorAll('.btn-rm').forEach(btn => {
         btn.addEventListener('click', async (e) => {
           e.stopPropagation();
-          const li = btn.closest('li');
-          const p = li.dataset.file;
-          if (!confirm(`Delete ${p}?`)) return;
+          const p = btn.closest('li').dataset.file;
+          if (!confirm('Delete ' + p + '?')) return;
           try {
-            const res = await api(`/projects/${state.currentProject.id}/delete-file`, {
-              method: 'POST',
-              body: JSON.stringify({ path: p })
-            });
-            state.currentProject = res.project;
-            renderFiles(res.files || []);
-            toast('Deleted');
+            const res = await api('/projects/' + state.currentProject.id + '/delete-file', { method: 'POST', body: JSON.stringify({ path: p }) });
+            state.currentProject = res.project; renderFiles(res.files || []); toast('Deleted');
           } catch (err) { toast(err.message); }
         });
       });
       lucide.createIcons();
     }
 
-    // Upload
     const dropzone = $('#dropzone');
     const fileInput = $('#file-input');
     dropzone.addEventListener('click', () => fileInput.click());
     dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('drag'); });
     dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag'));
     dropzone.addEventListener('drop', (e) => {
-      e.preventDefault();
-      dropzone.classList.remove('drag');
+      e.preventDefault(); dropzone.classList.remove('drag');
       if (e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files);
     });
     fileInput.addEventListener('change', () => {
@@ -1086,26 +1011,20 @@
         const fd = new FormData();
         fd.append('file', file);
         try {
-          toast(`Uploading ${file.name}…`);
-          const res = await api(`/projects/${state.currentProject.id}/upload`, {
-            method: 'POST',
-            body: fd
-          });
+          toast('Uploading ' + file.name + '…');
+          const res = await api('/projects/' + state.currentProject.id + '/upload', { method: 'POST', body: fd });
           state.currentProject = res.project;
           renderFiles(res.files || []);
-          toast(`${file.name} uploaded`);
-        } catch (e) {
-          toast(e.message);
-        }
+          toast(file.name + ' uploaded');
+        } catch (e) { toast(e.message); }
       }
     }
 
-    // Delete project
     $('#btn-delete-project').addEventListener('click', async () => {
       if (!state.currentProject) return;
-      if (!confirm(`Delete “${state.currentProject.name}”? This cannot be undone.`)) return;
+      if (!confirm('Delete "' + state.currentProject.name + '"? This cannot be undone.')) return;
       try {
-        await api(`/projects/${state.currentProject.id}`, { method: 'DELETE' });
+        await api('/projects/' + state.currentProject.id, { method: 'DELETE' });
         toast('Project deleted');
         state.currentProject = null;
         showAppSection('dashboard');
@@ -1113,7 +1032,6 @@
       } catch (e) { toast(e.message); }
     });
 
-    // Config
     $('#btn-edit-config').addEventListener('click', () => {
       const c = state.currentProject?.config || {};
       $('#cfg-name').value = c.name || state.currentProject.name;
@@ -1133,23 +1051,11 @@
           slug: $('#cfg-slug').value.trim(),
           version: $('#cfg-version').value.trim(),
           orientation: $('#cfg-orientation').value,
-          android: {
-            ...(state.currentProject.config.android || {}),
-            package: $('#cfg-android-package').value.trim()
-          },
-          ios: {
-            ...(state.currentProject.config.ios || {}),
-            bundleIdentifier: $('#cfg-ios-bundle').value.trim()
-          },
-          splash: {
-            ...(state.currentProject.config.splash || {}),
-            backgroundColor: $('#cfg-splash-bg').value.trim() || '#0f172a'
-          }
+          android: { ...(state.currentProject.config.android || {}), package: $('#cfg-android-package').value.trim() },
+          ios: { ...(state.currentProject.config.ios || {}), bundleIdentifier: $('#cfg-ios-bundle').value.trim() },
+          splash: { ...(state.currentProject.config.splash || {}), backgroundColor: $('#cfg-splash-bg').value.trim() || '#0f172a' }
         };
-        const updated = await api(`/projects/${state.currentProject.id}`, {
-          method: 'PUT',
-          body: JSON.stringify({ name: config.name, config })
-        });
+        const updated = await api('/projects/' + state.currentProject.id, { method: 'PUT', body: JSON.stringify({ name: config.name, config }) });
         state.currentProject = updated;
         $('#proj-name').textContent = updated.name;
         $('#modal-config').classList.add('hidden');
@@ -1157,7 +1063,6 @@
       } catch (e) { toast(e.message); }
     });
 
-    // Build
     let logPollTimer = null;
 
     $('#btn-build').addEventListener('click', () => {
@@ -1177,20 +1082,16 @@
       btn.disabled = true;
       btn.innerHTML = '<span class="spinner"></span> Starting…';
       try {
-        const res = await api(`/projects/${state.currentProject.id}/build`, {
-          method: 'POST',
-          body: JSON.stringify({ platform, profile, mode })
+        const res = await api('/projects/' + state.currentProject.id + '/build', {
+          method: 'POST', body: JSON.stringify({ platform, profile, mode })
         });
         $('#modal-build').classList.add('hidden');
         toast(mode === 'local' ? 'Local Android build started…' : 'Cloud build started…');
         loadProjectBuilds(state.currentProject.id);
+        loadAllBuildsSilent();
         if (res.build && res.build.id) startLogWatch(res.build.id);
-      } catch (e) {
-        toast(e.message);
-      } finally {
-        btn.disabled = false;
-        btn.innerHTML = 'Start build';
-      }
+      } catch (e) { toast(e.message); }
+      finally { btn.disabled = false; btn.innerHTML = 'Start build'; }
     });
 
     function statusClass(s) {
@@ -1201,169 +1102,169 @@
       return 'status-prepared';
     }
 
-    function renderBuildCard(b, withLogs = false) {
+    function renderBuildCard(b) {
       const arts = b.artifacts || [];
-      const binary = arts.find(a => a.type === 'app-binary' && a.url);
+      const remoteBinary = arts.find(a => a.type === 'app-binary' && a.url) || (b.binaryUrl ? { url: b.binaryUrl } : null);
+      const localBinary = arts.find(a => a.type === 'app-binary' && a.path);
       const expoPage = arts.find(a => a.type === 'expo-page' && a.url);
       const ghActions = arts.find(a => a.type === 'github-actions' && a.url);
-      const canZip = b.status === 'success' || arts.some(a => a.type === 'expo-bundle');
-      return `
-        <div class="build-card" data-build="${b.id}">
-          <div class="head">
-            <div>
-              <div style="font-weight:600;font-size:0.95rem">${escapeHtml(b.mode || 'cloud')} · ${escapeHtml(b.platform)} · ${escapeHtml(b.profile)}</div>
-              <div style="font-size:0.75rem;color:var(--muted);margin-top:2px">${new Date(b.createdAt).toLocaleString()}</div>
-            </div>
-            <span class="status-pill ${statusClass(b.status)}">${escapeHtml(b.status)}</span>
-          </div>
-          <p style="font-size:0.85rem;color:var(--muted);margin-bottom:10px">${escapeHtml(b.message || '')}</p>
-          ${withLogs ? `<div class="log-box" id="log-${b.id}">Loading logs…</div>` : ''}
-          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px">
-            <button class="btn btn-ghost btn-sm btn-watch" data-id="${b.id}">
-              <i data-lucide="terminal"></i> Logs
-            </button>
-            <button class="btn btn-ghost btn-sm btn-copy-log" data-id="${b.id}">
-              <i data-lucide="copy"></i> Copy log
-            </button>
-            ${binary ? `
-              <a class="btn btn-primary btn-sm" href="${escapeHtml(binary.url)}" target="_blank" rel="noopener">
-                <i data-lucide="download"></i> Download APK/AAB
-              </a>` : ''}
-            ${expoPage ? `
-              <a class="btn btn-ghost btn-sm" href="${escapeHtml(expoPage.url)}" target="_blank" rel="noopener">
-                <i data-lucide="external-link"></i> Expo build
-              </a>` : ''}
-            ${ghActions ? `
-              <a class="btn btn-ghost btn-sm" href="${escapeHtml(ghActions.url)}" target="_blank" rel="noopener">
-                <i data-lucide="github"></i> Actions
-              </a>` : ''}
-            ${canZip ? `
-              <a class="btn btn-ghost btn-sm" href="#"
-                 onclick="event.preventDefault(); downloadBuild('${b.id}')">
-                <i data-lucide="package"></i> Expo project ZIP
-              </a>` : ''}
-            <button class="btn btn-danger btn-sm btn-delete-build" data-id="${b.id}">
-              <i data-lucide="trash-2"></i> Delete
-            </button>
-          </div>
-        </div>
-      `;
+      const canZip = b.status === 'success' || arts.some(a => a.type === 'expo-bundle') || b.status === 'prepared' || b.status === 'building';
+      const showDownload = b.status === 'success' && (b.hasApk || localBinary || remoteBinary || b.mode === 'local');
+
+      return '<div class="build-card" data-build="' + b.id + '"><div class="head"><div>' +
+        '<div class="title">' + escapeHtml(b.mode || 'cloud') + ' · ' + escapeHtml(b.platform) + ' · ' + escapeHtml(b.profile) + '</div>' +
+        '<div class="time">' + new Date(b.createdAt).toLocaleString() + ' · ID ' + b.id.slice(0, 8) + '</div></div>' +
+        '<span class="status-pill ' + statusClass(b.status) + '">' + escapeHtml(b.status) + '</span></div>' +
+        '<p style="font-size:0.85rem;color:var(--muted);margin-bottom:4px">' + escapeHtml(b.message || '') + '</p>' +
+        (localBinary ? '<p style="font-size:0.78rem;color:var(--success);margin-bottom:8px">📦 Local binary ready: ' + escapeHtml(localBinary.name || 'app-release.apk') + '</p>' : '') +
+        '<div class="artifact-row">' +
+        '<button class="btn btn-ghost btn-sm btn-watch" data-id="' + b.id + '"><i data-lucide="terminal"></i> Logs</button>' +
+        '<button class="btn btn-ghost btn-sm btn-copy-log" data-id="' + b.id + '"><i data-lucide="copy"></i> Copy log</button>' +
+        (showDownload ? '<button class="btn btn-primary btn-sm btn-dl" data-id="' + b.id + '"><i data-lucide="download"></i> Download APK/AAB</button>' : '') +
+        (remoteBinary && remoteBinary.url ? '<a class="btn btn-ghost btn-sm" href="' + escapeHtml(remoteBinary.url) + '" target="_blank" rel="noopener"><i data-lucide="external-link"></i> Remote link</a>' : '') +
+        (expoPage ? '<a class="btn btn-ghost btn-sm" href="' + escapeHtml(expoPage.url) + '" target="_blank" rel="noopener"><i data-lucide="external-link"></i> Expo</a>' : '') +
+        (ghActions ? '<a class="btn btn-ghost btn-sm" href="' + escapeHtml(ghActions.url) + '" target="_blank" rel="noopener"><i data-lucide="github"></i> Actions</a>' : '') +
+        (canZip ? '<button class="btn btn-ghost btn-sm btn-zip" data-id="' + b.id + '"><i data-lucide="package"></i> Expo ZIP</button>' : '') +
+        '<button class="btn btn-danger btn-sm btn-delete-build" data-id="' + b.id + '"><i data-lucide="trash-2"></i></button>' +
+        '</div></div>';
+    }
+
+    function bindBuildCardEvents(container, onDelete) {
+      container.querySelectorAll('.btn-watch').forEach(btn => btn.addEventListener('click', () => startLogWatch(btn.dataset.id)));
+      container.querySelectorAll('.btn-copy-log').forEach(btn => btn.addEventListener('click', () => copyBuildLog(btn.dataset.id)));
+      container.querySelectorAll('.btn-dl').forEach(btn => btn.addEventListener('click', () => downloadBuild(btn.dataset.id)));
+      container.querySelectorAll('.btn-zip').forEach(btn => btn.addEventListener('click', () => downloadBuild(btn.dataset.id, true)));
+      container.querySelectorAll('.btn-delete-build').forEach(btn => btn.addEventListener('click', () => deleteBuild(btn.dataset.id, onDelete)));
+      lucide.createIcons();
     }
 
     async function loadProjectBuilds(projectId) {
       try {
         const all = await api('/builds');
+        state.builds = all;
         const list = all.filter(b => b.projectId === projectId);
         const el = $('#builds-list');
         if (!list.length) {
-          el.innerHTML = '<p style="color:var(--muted);font-size:0.9rem">No builds yet</p>';
+          el.innerHTML = '<p style="color:var(--muted);font-size:0.9rem">No builds yet — hit Build to create an APK</p>';
           return;
         }
-        el.innerHTML = list.slice(0, 8).map(b => renderBuildCard(b, false)).join('');
-        el.querySelectorAll('.btn-watch').forEach(btn => {
-          btn.addEventListener('click', () => startLogWatch(btn.dataset.id));
-        });
-        el.querySelectorAll('.btn-copy-log').forEach(btn => {
-          btn.addEventListener('click', () => copyBuildLog(btn.dataset.id));
-        });
-        el.querySelectorAll('.btn-delete-build').forEach(btn => {
-          btn.addEventListener('click', () => deleteBuild(btn.dataset.id, () => loadProjectBuilds(projectId)));
-        });
-        lucide.createIcons();
-      } catch (e) { /* ignore */ }
+        el.innerHTML = list.slice(0, 10).map(b => renderBuildCard(b)).join('');
+        bindBuildCardEvents(el, () => loadProjectBuilds(projectId));
+        updateStats();
+      } catch (e) {}
     }
 
-    async function downloadBuild(id) {
+    async function downloadBuild(id, forceZip) {
       try {
-        const res = await fetch(`/api/builds/${id}/download`, {
-          headers: { Authorization: `Bearer ${state.token}` }
+        toast(forceZip ? 'Preparing Expo ZIP…' : 'Preparing APK download…');
+        const endpoint = forceZip
+          ? '/api/builds/' + id + '/download?zip=1'
+          : '/api/builds/' + id + '/apk';
+        let res = await fetch(endpoint, {
+          headers: { Authorization: 'Bearer ' + state.token }
         });
+        if (res.redirected && res.url && res.url.indexOf('/api/builds/') === -1) {
+          window.open(res.url, '_blank');
+          toast('Opened remote download link');
+          return;
+        }
+        if (!res.ok && !forceZip) {
+          res = await fetch('/api/builds/' + id + '/download', {
+            headers: { Authorization: 'Bearer ' + state.token }
+          });
+        }
         if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.error || 'Download failed');
+          const err = await res.json().catch(function () { return {}; });
+          throw new Error(err.error || ('Download failed (' + res.status + ')'));
+        }
+        const ct = res.headers.get('content-type') || '';
+        if (ct.indexOf('application/json') !== -1) {
+          const data = await res.json();
+          throw new Error(data.error || 'No binary available');
         }
         const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
+        if (!forceZip && blob.size < 1000) {
+          throw new Error('File too small to be a valid APK. Re-run Local build or use Expo link.');
+        }
+        const cd = res.headers.get('content-disposition') || '';
+        var filename = forceZip
+          ? ('dolphine-' + id.slice(0, 8) + '-expo.zip')
+          : 'app-release.apk';
+        var m = cd.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+        if (m) filename = m[1].replace(/['"]/g, '');
+        else if (ct.indexOf('zip') !== -1) filename = 'dolphine-' + id.slice(0, 8) + '-expo.zip';
+        else if (ct.indexOf('aab') !== -1) filename = 'app-release.aab';
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
         a.href = url;
-        a.download = `dolphine-${id.slice(0, 8)}-expo.zip`;
+        a.download = filename;
+        document.body.appendChild(a);
         a.click();
+        a.remove();
         URL.revokeObjectURL(url);
-        toast('Download started');
-      } catch (e) {
-        toast(e.message);
-      }
+        toast('Download started (' + Math.round(blob.size / 1024) + ' KB)');
+      } catch (e) { toast(e.message); }
     }
-    window.downloadBuild = downloadBuild;
 
     async function deleteBuild(id, onDone) {
-      if (!confirm('Delete this build? This removes its logs and any downloaded APK/AAB.')) return;
+      if (!confirm('Delete this build? Removes logs and any local APK/AAB.')) return;
       try {
-        await api(`/builds/${id}`, { method: 'DELETE' });
+        await api('/builds/' + id, { method: 'DELETE' });
         toast('Build deleted');
         if (typeof onDone === 'function') onDone();
-      } catch (e) {
-        toast(e.message);
-      }
+        loadAllBuildsSilent();
+      } catch (e) { toast(e.message); }
     }
-    window.deleteBuild = deleteBuild;
 
     async function copyBuildLog(id) {
       try {
-        const data = await api(`/builds/${id}/logs`);
+        const data = await api('/builds/' + id + '/logs');
         const text = (data.logs || []).join('\n');
         if (!text) { toast('No logs to copy yet'); return; }
         await navigator.clipboard.writeText(text);
         toast('Log copied to clipboard');
-      } catch (e) {
-        toast('Copy failed: ' + e.message);
-      }
+      } catch (e) { toast('Copy failed: ' + e.message); }
     }
-    window.copyBuildLog = copyBuildLog;
 
     function startLogWatch(buildId) {
-      // Show log panel under builds list
       let panel = document.getElementById('live-log-panel');
       if (!panel) {
         panel = document.createElement('div');
         panel.id = 'live-log-panel';
         panel.className = 'panel';
-        panel.innerHTML = `
-          <h3><i data-lucide="terminal"></i> Live build log
-            <button class="btn btn-ghost btn-sm" id="live-log-copy" style="float:right">
-              <i data-lucide="copy"></i> Copy log
-            </button>
-          </h3>
-          <div class="log-box" id="live-log-box" style="max-height:280px"></div>
-          <p style="font-size:0.75rem;color:var(--muted);margin-top:8px">Build continues even if you leave this page.</p>
-        `;
+        panel.innerHTML = '<h3 style="display:flex;align-items:center;gap:8px"><i data-lucide="terminal"></i> Live build log' +
+          '<button class="btn btn-ghost btn-sm" id="live-log-copy" style="margin-left:auto"><i data-lucide="copy"></i> Copy</button></h3>' +
+          '<div class="log-box" id="live-log-box" style="max-height:300px"></div>' +
+          '<p style="font-size:0.75rem;color:var(--muted2);margin-top:10px">Build continues in the background if you leave this page.</p>';
         const buildsList = $('#builds-list');
-        buildsList.parentNode.insertBefore(panel, buildsList.nextSibling);
+        if (buildsList && buildsList.parentNode) buildsList.parentNode.insertBefore(panel, buildsList.nextSibling);
+        else $('#all-builds-list')?.prepend(panel);
         lucide.createIcons();
-        document.getElementById('live-log-copy').addEventListener('click', () => copyBuildLog(buildId));
       }
       panel.style.display = 'block';
+      const copyBtn = document.getElementById('live-log-copy');
+      if (copyBtn) copyBtn.onclick = () => copyBuildLog(buildId);
 
       if (logPollTimer) clearInterval(logPollTimer);
-
       const poll = async () => {
         try {
-          const data = await api(`/builds/${buildId}/logs`);
+          const data = await api('/builds/' + buildId + '/logs');
           const box = $('#live-log-box');
           if (box) {
             box.innerHTML = (data.logs || []).map(line => {
               let cls = '';
-              if (line.includes('✅') || line.toLowerCase().includes('complete')) cls = 'ok';
-              if (line.includes('❌') || line.toLowerCase().includes('failed')) cls = 'err';
-              return `<div class="${cls}">${escapeHtml(line)}</div>`;
+              if (line.includes('✅') || /complete|success|finished/i.test(line)) cls = 'ok';
+              if (line.includes('❌') || /failed|error/i.test(line)) cls = 'err';
+              if (/Expo status|Running|Installing|Found binary/i.test(line)) cls = 'info';
+              return '<div class="' + cls + '">' + escapeHtml(line) + '</div>';
             }).join('');
             box.scrollTop = box.scrollHeight;
           }
-          // Refresh cards
           if (state.currentProject) loadProjectBuilds(state.currentProject.id);
           if (data.status === 'success' || data.status === 'failed') {
             clearInterval(logPollTimer);
             logPollTimer = null;
+            if (data.status === 'success') toast('Build finished — download ready');
           }
         } catch (_) {}
       };
@@ -1371,57 +1272,149 @@
       logPollTimer = setInterval(poll, 1500);
     }
 
-    // Builds page
     async function loadAllBuilds() {
       try {
         state.builds = await api('/builds');
         const el = $('#all-builds-list');
         if (!state.builds.length) {
-          el.innerHTML = `<div class="empty"><i data-lucide="package" style="width:48px;height:48px"></i><p>No builds yet</p></div>`;
+          el.innerHTML = '<div class="empty"><i data-lucide="package" style="width:52px;height:52px"></i><p style="font-weight:600;color:var(--text-secondary)">No builds yet</p></div>';
           lucide.createIcons();
           return;
         }
         el.innerHTML = state.builds.map(b => {
           const proj = state.projects.find(p => p.id === b.projectId);
           const name = proj?.name || 'Project';
-          return `
-            <div style="margin-bottom:4px;font-size:0.8rem;color:var(--muted)">${escapeHtml(name)}</div>
-            ${renderBuildCard(b, false)}
-          `;
+          return '<div style="margin-bottom:4px;font-size:0.8rem;color:var(--muted2);font-weight:500">' + escapeHtml(name) + '</div>' + renderBuildCard(b);
         }).join('');
-        el.querySelectorAll('.btn-watch').forEach(btn => {
-          btn.addEventListener('click', () => startLogWatch(btn.dataset.id));
-        });
-        el.querySelectorAll('.btn-copy-log').forEach(btn => {
-          btn.addEventListener('click', () => copyBuildLog(btn.dataset.id));
-        });
-        el.querySelectorAll('.btn-delete-build').forEach(btn => {
-          btn.addEventListener('click', () => deleteBuild(btn.dataset.id, loadAllBuilds));
-        });
-        lucide.createIcons();
+        bindBuildCardEvents(el, loadAllBuilds);
+        updateStats();
       } catch (e) { toast(e.message); }
     }
 
-    // Nav
-    $$('.bottom-nav button[data-nav]').forEach(btn => {
+    function handleNav(nav) {
+      if (nav === 'dashboard') { state.currentProject = null; showAppSection('dashboard'); loadProjects(); closeChat(); }
+      else if (nav === 'builds') { showAppSection('builds'); loadAllBuilds(); closeChat(); }
+      else if (nav === 'chat') { openChat(); }
+    }
+    $$('[data-nav]').forEach(btn => btn.addEventListener('click', () => handleNav(btn.dataset.nav)));
+
+    const CHAT_KB = {
+      help: { title: 'How builds work', body: 'Dolphine wraps your HTML in an Expo / React Native WebView and produces a real APK, AAB, or IPA.\n\n**1. Upload** index.html (required) plus CSS, JS, images. Optionally include logo.png for the app icon.\n\n**2. Configure** package name, version, orientation under Config.\n\n**3. Build**\n• **Local** — runs expo prebuild + Gradle on this machine. Needs Android SDK + JDK 17. Produces a downloadable APK here.\n• **Cloud** — uses EAS (needs EXPO_TOKEN in .env) or a GitHub Action dispatch.\n\n**4. Download** the APK from the build card (local) or Expo dashboard (cloud).' },
+      crash: { title: 'Fix APK crash on open', body: 'APKs that white-screen or crash on launch usually had a broken WebView asset path.\n\n**Fixed in the latest generator:**\n• The full www tree is now copied into the app document directory at runtime so relative paths (./style.css, images, scripts) resolve.\n• Loading indicator + error surface instead of a silent crash.\n• Extra Android WebView flags (allowFileAccessFromFileURLs, hardware layer).\n\n**What you should do:**\n1. Re-upload your project (ensure index.html is at the root).\n2. Start a **new** Local or Cloud build — old APKs used the previous loader.\n3. Install the new APK and open it.\n\nIf it still fails, open Logs on the build and look for WebView error or www setup failed.' },
+      local: { title: 'Local build tips', body: 'Local mode builds the APK on the same machine running Dolphine.\n\n**Requirements**\n• Node 18+\n• JDK 17 (Temurin / OpenJDK)\n• Android SDK with platform-tools (ANDROID_HOME)\n\n**Tips**\n• Prefer Preview profile → APK (faster, sideloadable).\n• Production profile → AAB for Play Store.\n• Low-RAM machines: Dolphine sets Gradle no-daemon + 1.5g heap.\n• After success you should see Download APK/AAB on the build card.\n\nIf the button is missing, refresh Builds — local artifacts use a server path, not a public URL.' },
+      cloud: { title: 'Cloud / EAS setup', body: '**EXPO_TOKEN**\n1. expo.dev → Account → Access tokens\n2. Put in .env: EXPO_TOKEN=...\n3. Multi-account tokens also need EAS_ACCOUNT=your_account\n\n**Optional GitHub Action**\nGITHUB_TOKEN + GITHUB_REPO=owner/repo triggers .github/workflows/eas-build.yml.\n\nCloud builds take 5–20 minutes. Watch the Expo build page link on the card.' },
+      assets: { title: 'Icons & splash', body: 'Place logo.png at the project root (or inside the ZIP). Dolphine copies it to assets/icon.png, splash.png, adaptive-icon.png, favicon.png.\n\nSplash background colour is set under Config → Splash bg color (default #0f172a).\n\nPrefer a square PNG ≥ 1024×1024 for crisp adaptive icons.' },
+      logs: { title: 'Reading build logs', body: 'Each build has a Logs button and live log panel.\n\nLook for:\n• Found binary: app-release.apk → local success\n• EAS build queued → cloud job started\n• ❌ or failed → scroll up for the first real error\n• Android SDK not configured → set ANDROID_HOME\n• Unsupported class file major version → install JDK 17\n\nUse Copy log to paste into an issue or the chat.' }
+    };
+
+    function openChat(seedTool) {
+      $('#chat-layer').classList.remove('hidden');
+      renderChatHistory();
+      if (seedTool && CHAT_KB[seedTool]) pushAssistant(CHAT_KB[seedTool].title, CHAT_KB[seedTool].body);
+      else if (!$('#chat-messages').children.length) {
+        pushAssistant('Welcome', 'Ask anything about builds, crashes, config, or pick a tool on the left.\n\nRecent fixes: local APK download button + crash-safe WebView asset loading.');
+      }
+      lucide.createIcons();
+    }
+    function closeChat() {
+      $('#chat-layer').classList.add('hidden');
+      $('#chat-layer').classList.remove('tools-open');
+    }
+    $('#chat-close').addEventListener('click', closeChat);
+    $('#chat-close-side')?.addEventListener('click', closeChat);
+    $('#btn-open-chat')?.addEventListener('click', () => openChat());
+    $('#btn-chat-from-builds')?.addEventListener('click', () => openChat());
+    $('#chat-toggle-tools')?.addEventListener('click', () => $('#chat-layer').classList.toggle('tools-open'));
+
+    $$('.chat-tools button').forEach(btn => {
       btn.addEventListener('click', () => {
-        const nav = btn.dataset.nav;
-        if (nav === 'dashboard') {
-          state.currentProject = null;
-          showAppSection('dashboard');
-          loadProjects();
-        } else if (nav === 'builds') {
-          showAppSection('builds');
-          loadAllBuilds();
-        }
+        $$('.chat-tools button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const tool = btn.dataset.tool;
+        if (CHAT_KB[tool]) pushAssistant(CHAT_KB[tool].title, CHAT_KB[tool].body);
       });
     });
+    $$('#chat-suggestions button').forEach(btn => {
+      btn.addEventListener('click', () => handleChatSend(btn.dataset.q));
+    });
 
-    // Init
+    function pushUser(text) {
+      const el = document.createElement('div');
+      el.className = 'chat-msg user';
+      el.innerHTML = '<div class="role">You</div><div class="bubble">' + escapeHtml(text) + '</div>';
+      $('#chat-messages').appendChild(el);
+      $('#chat-messages').scrollTop = $('#chat-messages').scrollHeight;
+    }
+    function formatBody(text) {
+      let html = escapeHtml(text);
+      html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+      html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+      html = html.replace(/\n/g, '<br>');
+      return html;
+    }
+    function pushAssistant(title, body) {
+      const el = document.createElement('div');
+      el.className = 'chat-msg assistant';
+      el.innerHTML = '<div class="role">Dolphine</div><div class="bubble"><strong>' + escapeHtml(title) + '</strong><br><br>' + formatBody(body) + '</div>';
+      $('#chat-messages').appendChild(el);
+      $('#chat-messages').scrollTop = $('#chat-messages').scrollHeight;
+    }
+    function answerChat(q) {
+      const lower = q.toLowerCase();
+      if (/crash|white.?screen|blank|onload|open/.test(lower)) return CHAT_KB.crash;
+      if (/download|local.?apk|missing.?button|apk.?button/.test(lower)) {
+        return { title: 'Download local APK', body: 'After a **successful local** build the card shows **Download APK/AAB**.\n\nThat button calls /api/builds/:id/download, which streams the file from the server path (not a public URL).\n\nIf you only see Expo ZIP:\n• Confirm status is success and the log contains Found binary: app-release.apk\n• Refresh the Builds list\n• Re-run the build with the latest Dolphine server (download button now detects path artifacts, not only remote url)' };
+      }
+      if (/required|index\.html|what.?files|upload/.test(lower)) {
+        return { title: 'Required files', body: '**Must have:** index.html at the project root.\n\n**Recommended:** logo.png (app icon), CSS/JS/images referenced by relative paths.\n\nZIP uploads expand preserving structure. Absolute http(s) links still work; local relative assets are now copied correctly into the APK.' };
+      }
+      if (/cloud|eas|token|github/.test(lower)) return CHAT_KB.cloud;
+      if (/local|gradle|sdk|jdk|android.?home/.test(lower)) return CHAT_KB.local;
+      if (/icon|splash|logo/.test(lower)) return CHAT_KB.assets;
+      if (/log/.test(lower)) return CHAT_KB.logs;
+      return CHAT_KB.help;
+    }
+    function handleChatSend(text) {
+      const q = (text || $('#chat-input').value || '').trim();
+      if (!q) return;
+      $('#chat-input').value = '';
+      pushUser(q);
+      const ans = answerChat(q);
+      pushAssistant(ans.title, ans.body);
+      state.chatHistory.unshift({ q, t: Date.now() });
+      state.chatHistory = state.chatHistory.slice(0, 30);
+      localStorage.setItem('dolphine_chat', JSON.stringify(state.chatHistory));
+      renderChatHistory();
+    }
+    function renderChatHistory() {
+      const el = $('#chat-history');
+      if (!el) return;
+      if (!state.chatHistory.length) {
+        el.innerHTML = '<p style="font-size:0.8rem;color:var(--muted2);padding:8px">No past questions</p>';
+        return;
+      }
+      el.innerHTML = state.chatHistory.map((h, i) =>
+        '<div class="chat-history-item" data-i="' + i + '"><div class="q">' + escapeHtml(h.q) +
+        '</div><div class="t">' + new Date(h.t).toLocaleString() + '</div></div>'
+      ).join('');
+      el.querySelectorAll('.chat-history-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const h = state.chatHistory[+item.dataset.i];
+          if (h) handleChatSend(h.q);
+        });
+      });
+    }
+
+    $('#chat-send').addEventListener('click', () => handleChatSend());
+    $('#chat-input').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleChatSend(); }
+    });
+
     lucide.createIcons();
     if (state.token && state.user) {
       showView('app-view');
       loadProjects();
+      loadAllBuildsSilent();
     } else {
       showView('auth-view');
     }
